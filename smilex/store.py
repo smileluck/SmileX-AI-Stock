@@ -26,6 +26,18 @@ def init_db():
             code TEXT, date TEXT, open REAL, close REAL, high REAL, low REAL,
             volume REAL, PRIMARY KEY (code, date)
         );
+        CREATE TABLE IF NOT EXISTS news (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL,
+            title TEXT NOT NULL,
+            content TEXT DEFAULT '',
+            url TEXT UNIQUE NOT NULL,
+            publish_time TEXT,
+            fetch_time TEXT NOT NULL,
+            extra TEXT DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_news_source ON news(source);
+        CREATE INDEX IF NOT EXISTS idx_news_publish ON news(publish_time);
     """)
     conn.commit()
     conn.close()
@@ -122,3 +134,49 @@ def query_index(code: str, start_date: str = "") -> pd.DataFrame:
     if not df.empty and "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"])
     return df
+
+
+def save_news(df: pd.DataFrame):
+    if df.empty:
+        return
+    conn = _conn()
+    cols = ["source", "title", "content", "url", "publish_time", "fetch_time", "extra"]
+    save_df = df[[c for c in cols if c in df.columns]].copy()
+    save_df.to_sql("_tmp_news", conn, if_exists="replace", index=False)
+    conn.execute(
+        "INSERT OR IGNORE INTO news (source, title, content, url, publish_time, fetch_time, extra) "
+        "SELECT source, title, content, url, publish_time, fetch_time, extra FROM _tmp_news"
+    )
+    conn.execute("DROP TABLE _tmp_news")
+    conn.commit()
+    conn.close()
+
+
+def query_news(source: str = "", limit: int = 200, since: str = "") -> pd.DataFrame:
+    conn = _conn()
+    sql = "SELECT * FROM news"
+    params: list = []
+    conditions = []
+    if source:
+        conditions.append("source = ?")
+        params.append(source)
+    if since:
+        conditions.append("fetch_time >= ?")
+        params.append(since)
+    if conditions:
+        sql += " WHERE " + " AND ".join(conditions)
+    sql += " ORDER BY publish_time DESC LIMIT ?"
+    params.append(str(limit))
+    df = pd.read_sql(sql, conn, params=params)
+    conn.close()
+    return df
+
+
+def cleanup_old_news(days: int = 7):
+    conn = _conn()
+    conn.execute(
+        "DELETE FROM news WHERE fetch_time < datetime('now', ?)",
+        (f"-{days} days",)
+    )
+    conn.commit()
+    conn.close()

@@ -6,6 +6,7 @@ import pandas as pd
 from smilex.scheduler import (
     load_config, start_scheduler, stop_scheduler,
     get_next_run_time, get_scan_history, run_daily_job,
+    start_news_sync, stop_news_sync,
 )
 from smilex.config import HISTORY_DIR
 
@@ -52,6 +53,57 @@ with col_manual:
                 st.success("执行完成，结果已保存")
             except Exception as e:
                 st.error(f"执行失败：{e}")
+
+# ── 新闻同步 ──
+st.divider()
+st.subheader("新闻同步")
+
+news_cfg = load_config()
+news_enabled = news_cfg.get("news_sync_enabled", False)
+news_interval = news_cfg.get("news_sync_interval", 30)
+
+scheduler = st.session_state.get("_scheduler")
+is_news_running = (
+    scheduler is not None
+    and scheduler.running
+    and scheduler.get_job("news_sync") is not None
+)
+
+news_interval = st.number_input(
+    "同步间隔（秒）", min_value=10, max_value=300, value=news_interval,
+)
+
+col_start_news, col_stop_news, col_manual_news = st.columns(3)
+
+with col_start_news:
+    if st.button("启动新闻同步", type="primary", disabled=is_news_running):
+        try:
+            start_news_sync(st.session_state, news_interval)
+            st.success(f"新闻同步已启动，每 {news_interval} 秒同步一次")
+            st.rerun()
+        except Exception as e:
+            st.error(f"启动失败：{e}")
+
+with col_stop_news:
+    if st.button("停止新闻同步", disabled=not is_news_running):
+        stop_news_sync(st.session_state)
+        st.success("新闻同步已停止")
+        st.rerun()
+
+with col_manual_news:
+    if st.button("立即同步一次新闻"):
+        with st.spinner("正在同步新闻..."):
+            try:
+                from smilex.news_sync import sync_all_news
+                sync_all_news()
+                st.success("新闻同步完成")
+            except Exception as e:
+                st.error(f"同步失败：{e}")
+
+if is_news_running:
+    st.success(f"新闻同步运行中 | 间隔: {news_interval} 秒")
+else:
+    st.info("新闻同步未启动")
 
 # ── 运行状态 ──
 st.divider()
