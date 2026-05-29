@@ -7,6 +7,7 @@ from smilex.scheduler import (
     load_config, start_scheduler, stop_scheduler,
     get_next_run_time, get_scan_history, run_daily_job,
     start_news_sync, stop_news_sync,
+    start_market_sync, stop_market_sync,
 )
 from smilex.config import HISTORY_DIR
 
@@ -104,6 +105,56 @@ if is_news_running:
     st.success(f"新闻同步运行中 | 间隔: {news_interval} 秒")
 else:
     st.info("新闻同步未启动")
+
+# ── 大盘同步 ──
+st.divider()
+st.subheader("大盘同步")
+
+market_cfg = load_config()
+market_interval = market_cfg.get("market_sync_interval", 60)
+
+is_market_running = (
+    scheduler is not None
+    and scheduler.running
+    and scheduler.get_job("market_sync") is not None
+)
+
+market_interval = st.number_input(
+    "同步间隔（秒）", min_value=30, max_value=300,
+    value=market_interval, key="market_interval",
+)
+
+col_start_m, col_stop_m, col_manual_m = st.columns(3)
+
+with col_start_m:
+    if st.button("启动大盘同步", type="primary", disabled=is_market_running):
+        try:
+            start_market_sync(st.session_state, market_interval)
+            st.success(f"大盘同步已启动，每 {market_interval} 秒同步一次")
+            st.rerun()
+        except Exception as e:
+            st.error(f"启动失败：{e}")
+
+with col_stop_m:
+    if st.button("停止大盘同步", disabled=not is_market_running):
+        stop_market_sync(st.session_state)
+        st.success("大盘同步已停止")
+        st.rerun()
+
+with col_manual_m:
+    if st.button("立即同步一次大盘"):
+        with st.spinner("正在同步大盘数据..."):
+            try:
+                from smilex.scheduler import sync_market_overview
+                sync_market_overview()
+                st.success("大盘同步完成")
+            except Exception as e:
+                st.error(f"同步失败：{e}")
+
+if is_market_running:
+    st.success(f"大盘同步运行中 | 间隔: {market_interval} 秒")
+else:
+    st.info("大盘同步未启动")
 
 # ── 运行状态 ──
 st.divider()

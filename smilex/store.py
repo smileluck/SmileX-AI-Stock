@@ -36,6 +36,12 @@ def init_db():
             fetch_time TEXT NOT NULL,
             extra TEXT DEFAULT '{}'
         );
+        CREATE TABLE IF NOT EXISTS market_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_time TEXT NOT NULL,
+            total INTEGER, up_count INTEGER, down_count INTEGER, flat_count INTEGER,
+            limit_up INTEGER, limit_down INTEGER
+        );
         CREATE INDEX IF NOT EXISTS idx_news_source ON news(source);
         CREATE INDEX IF NOT EXISTS idx_news_publish ON news(publish_time);
     """)
@@ -180,3 +186,40 @@ def cleanup_old_news(days: int = 7):
     )
     conn.commit()
     conn.close()
+
+
+def save_market_stats(total: int, up_count: int, down_count: int,
+                      flat_count: int, limit_up: int, limit_down: int):
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO market_stats (snapshot_time, total, up_count, down_count, flat_count, limit_up, limit_down) "
+        "VALUES (datetime('now','localtime'), ?, ?, ?, ?, ?, ?)",
+        (total, up_count, down_count, flat_count, limit_up, limit_down),
+    )
+    conn.commit()
+    conn.close()
+
+
+def query_market_stats() -> pd.DataFrame:
+    conn = _conn()
+    df = pd.read_sql(
+        "SELECT * FROM market_stats ORDER BY snapshot_time DESC LIMIT 1", conn
+    )
+    conn.close()
+    return df
+
+
+def sync_index_data(codes: list[str] | None = None):
+    """同步指数日K线数据到数据库"""
+    from smilex.fetcher import index_daily
+
+    if codes is None:
+        codes = ["000001", "399001", "399006"]
+
+    for code in codes:
+        try:
+            df = index_daily(code, start_date="20250101")
+            if not df.empty:
+                save_index(df)
+        except Exception as e:
+            print(f"同步指数 {code} 失败: {e}")

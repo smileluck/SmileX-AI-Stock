@@ -4,8 +4,8 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from smilex.config import HISTORY_DIR
-from smilex.store import init_db, save_stock_list, update_daily
-from smilex.fetcher import stock_list
+from smilex.store import init_db, save_stock_list, update_daily, save_market_stats, sync_index_data
+from smilex.fetcher import stock_list, realtime_quote
 from smilex.scanner import daily_scan
 from smilex.notify import push, push_scan
 
@@ -39,6 +39,33 @@ def run_daily_job():
         push(f"每日任务执行失败：{e}", "SmileX 错误告警")
 
 
+def sync_market_overview():
+    """同步大盘概览数据：市场统计 + 指数K线"""
+    print(f"[{datetime.now()}] 同步大盘概览数据...")
+    try:
+        quote = realtime_quote()
+        if not quote.empty:
+            col_name = "涨跌幅"
+            if col_name not in quote.columns:
+                candidates = [c for c in quote.columns if "涨跌" in c]
+                if candidates:
+                    col_name = candidates[0]
+
+            total = len(quote)
+            up_count = len(quote[quote[col_name] > 0])
+            down_count = len(quote[quote[col_name] < 0])
+            flat_count = total - up_count - down_count
+            limit_up = len(quote[quote[col_name] >= 9.9])
+            limit_down = len(quote[quote[col_name] <= -9.9])
+
+            save_market_stats(total, up_count, down_count, flat_count, limit_up, limit_down)
+
+        sync_index_data()
+        print(f"[{datetime.now()}] 大盘概览数据同步完成")
+    except Exception as e:
+        print(f"大盘概览同步失败: {e}")
+
+
 def load_config() -> dict:
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -49,6 +76,8 @@ def load_config() -> dict:
         "minute": 30,
         "news_sync_enabled": False,
         "news_sync_interval": 30,
+        "market_sync_enabled": False,
+        "market_sync_interval": 60,
     }
 
 
@@ -66,6 +95,11 @@ def start_scheduler(st_state, hour: int, minute: int):
     scheduler = BackgroundScheduler()
     scheduler.add_job(run_daily_job, "cron", hour=hour, minute=minute,
                       id="daily_scan", replace_existing=True)
+
+    if cfg.get("market_sync_enabled"):
+        interval = cfg.get("market_sync_interval", 60)
+        scheduler.add_job(sync_market_overview, "interval", seconds=interval,
+                          id="market_sync", replace_existing=True)
 
     cfg = load_config()
     if cfg.get("news_sync_enabled"):
@@ -144,4 +178,41 @@ def stop_news_sync(st_state):
             st_state["_scheduler"] = None
     cfg = load_config()
     cfg["news_sync_enabled"] = False
+    save_config(cfg)
+
+
+def start_market_sync(st_state, interval_seconds: int = 60):
+    """启动大盘概览同步后台任务"""
+    scheduler = st_state.get("_scheduler")
+    if scheduler is None:
+        scheduler = BackgroundScheduler()
+        st_state["_scheduler"] = scheduler
+
+    existing = scheduler.get_job("market_sync")
+    if existing:
+        scheduler.remove_job("market_sync")
+
+    if not scheduler.running:
+        scheduler.start()
+
+    scheduler.add_job(
+        sync_market_overview, "interval", seconds=interval_seconds,
+        id="market_sync", replace_existing=True,
+    )
+    cfg = load_config()
+    cfg["market_sync_enabled"] = True
+    cfg["market_sync_interval"] = interval_seconds
+    save_config(cfg)
+
+
+def stop_market_sync(st_state):
+    """停止大盘概览同步后台任务"""
+    scheduler = st_state.get("_scheduler")
+    if scheduler and scheduler.running:
+        scheduler.remove_job("market_sync")
+        if scheduler.get_job("daily_scan") is None and scheduler.get_job("news_sync") is None:
+            scheduler.shutdown(wait=False)
+            st_state["_scheduler"] = None
+    cfg = load_config()
+    cfg["market_sync_enabled"] = False
     save_config(cfg)
