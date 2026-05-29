@@ -43,11 +43,14 @@ def daily_history(code: str, start_date: str = DEFAULT_START_DATE,
 def index_daily(symbol: str = "000001",
                 start_date: str = DEFAULT_START_DATE) -> pd.DataFrame:
     """获取指数日K线数据"""
-    df = ak.stock_zh_index_daily(symbol=symbol)
-    df = df.rename(columns={
-        "date": "date", "open": "open", "close": "close",
-        "high": "high", "low": "low", "volume": "volume",
-    })
+    # stock_zh_index_daily 需要市场前缀: sh(沪) / sz(深)
+    if not symbol.startswith(("sh", "sz")):
+        prefix = "sh" if symbol.startswith(("000", "5")) else "sz"
+        full_symbol = f"{prefix}{symbol}"
+    else:
+        full_symbol = symbol
+
+    df = ak.stock_zh_index_daily(symbol=full_symbol)
     df["date"] = pd.to_datetime(df["date"])
     start = pd.to_datetime(start_date)
     df = df[df["date"] >= start]
