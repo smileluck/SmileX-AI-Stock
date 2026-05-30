@@ -3,7 +3,17 @@ import sqlite3
 import pandas as pd
 from smilex.config import DB_PATH, DATA_DIR
 
-_os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def _normalize_date(date_str: str) -> str:
+    """Normalize date string to YYYY-MM-DD format for SQLite comparison."""
+    if not date_str:
+        return date_str
+    s = date_str.strip()
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return s
 
 
 def _conn() -> sqlite3.Connection:
@@ -122,10 +132,10 @@ def query_daily(code: str, start_date: str = "", end_date: str = "") -> pd.DataF
     params: list = [code]
     if start_date:
         sql += " AND date >= ?"
-        params.append(start_date)
+        params.append(_normalize_date(start_date))
     if end_date:
         sql += " AND date <= ?"
-        params.append(end_date)
+        params.append(_normalize_date(end_date))
     sql += " ORDER BY date"
     df = pd.read_sql(sql, conn, params=params)
     conn.close()
@@ -154,7 +164,7 @@ def query_index(code: str, start_date: str = "") -> pd.DataFrame:
     params: list = [code]
     if start_date:
         sql += " AND date >= ?"
-        params.append(start_date)
+        params.append(_normalize_date(start_date))
     sql += " ORDER BY date"
     df = pd.read_sql(sql, conn, params=params)
     conn.close()
