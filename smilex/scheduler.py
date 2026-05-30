@@ -3,8 +3,8 @@ import json
 from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from smilex.config import HISTORY_DIR
-from smilex.store import init_db, save_stock_list, update_daily, save_market_stats, sync_index_data
+from smilex.config import HISTORY_DIR, AI_MODEL
+from smilex.store import init_db, save_stock_list, update_daily, save_market_stats, sync_index_data, save_ai_analysis
 from smilex.fetcher import stock_list, realtime_quote
 from smilex.scanner import daily_scan
 from smilex.notify import push, push_scan
@@ -50,6 +50,26 @@ def run_daily_job(strategy_name: str = "trend_following"):
         print(f"[{datetime.now()}] 每日任务完成")
     except Exception as e:
         push(f"每日任务执行失败：{e}", "SmileX 错误告警")
+
+
+def run_ai_daily_task():
+    """AI每日收盘分析：总结今日市场 + 预测明日走势"""
+    print(f"[{datetime.now()}] 开始AI每日分析...")
+    try:
+        from smilex.ai import summarize_and_predict
+
+        result = summarize_and_predict()
+        save_ai_analysis(
+            analysis_type="daily_summary",
+            content=result.get("summary", ""),
+            model=result.get("model", AI_MODEL),
+            summary=result.get("summary", ""),
+            prediction=result.get("prediction", ""),
+        )
+        print(f"[{datetime.now()}] AI每日分析完成")
+    except Exception as e:
+        print(f"AI每日分析失败: {e}")
+        push(f"AI每日分析执行失败：{e}", "SmileX AI 告警")
 
 
 def sync_market_overview():
@@ -111,6 +131,13 @@ def start_scheduler(st_state, hour: int, minute: int, strategy_name: str = "tren
     scheduler.add_job(run_daily_job, "cron", hour=hour, minute=minute,
                       id="daily_scan", replace_existing=True,
                       kwargs={"strategy_name": strategy_name})
+
+    # AI每日分析，比daily_scan晚5分钟
+    ai_minute = (minute + 5) % 60
+    ai_hour = hour + (1 if minute + 5 >= 60 else 0)
+    scheduler.add_job(run_ai_daily_task, "cron",
+                      hour=ai_hour, minute=ai_minute,
+                      id="ai_daily_analysis", replace_existing=True)
 
     if cfg.get("market_sync_enabled"):
         interval = cfg.get("market_sync_interval", 60)

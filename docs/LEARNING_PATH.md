@@ -6,22 +6,22 @@
 >
 > **Mermaid 图表**：本文档中的流程图使用 Mermaid 语法，GitHub 和 VS Code（安装 Markdown Preview Mermaid 插件）均可渲染。
 
----
+***
 
 ## 第一章：全局知识图谱
 
 ### Java → Python 对照速查
 
-| Java 概念 | Python / 本项目对应 |
-|-----------|-------------------|
-| Spring Boot + Thymeleaf | Streamlit（无需前后端分离，Python 直接写 UI）|
+| Java 概念                    | Python / 本项目对应                          |
+| -------------------------- | --------------------------------------- |
+| Spring Boot + Thymeleaf    | Streamlit（无需前后端分离，Python 直接写 UI）        |
 | Spring Data JPA + H2/MySQL | SQLite + pandas `to_sql()`/`read_sql()` |
-| Quartz Scheduler | APScheduler `BackgroundScheduler` |
-| OkHttp / Retrofit | AKShare（封装好的金融数据 API）|
-| Jackson / Gson | pandas DataFrame（结构化数据处理）|
-| JUnit | pytest |
-| Maven / Gradle | uv（Python 包管理器）|
-| Stream + Record 列表操作 | pandas DataFrame 操作 |
+| Quartz Scheduler           | APScheduler `BackgroundScheduler`       |
+| OkHttp / Retrofit          | AKShare（封装好的金融数据 API）                   |
+| Jackson / Gson             | pandas DataFrame（结构化数据处理）               |
+| JUnit                      | pytest                                  |
+| Maven / Gradle             | uv（Python 包管理器）                         |
+| Stream + Record 列表操作       | pandas DataFrame 操作                     |
 
 ### 系统架构知识图谱
 
@@ -69,7 +69,7 @@ graph TB
     F --> D3
 ```
 
----
+***
 
 ## 第二章：模块学习路线
 
@@ -106,6 +106,7 @@ graph TB
 #### 知识点详解
 
 **A股交易制度：**
+
 - 交易时间：周一至周五 9:30-11:30（上午盘）、13:00-15:00（下午盘）
 - T+1 交割：当日买入的股票次日才能卖出
 - 涨跌停限制：主板 ±10%，创业板/科创板 ±20%
@@ -113,19 +114,22 @@ graph TB
 - 集合竞价：9:15-9:25（开盘）、14:57-15:00（收盘）
 
 **四大板块区别：**
-| 板块 | 交易所 | 代码开头 | 涨跌停 | 上市门槛 |
-|------|--------|---------|--------|---------|
-| 主板 | 上交所/深交所 | 60/00 | ±10% | 盈利要求高 |
-| 创业板 | 深交所 | 300 | ±20% | 成长型企业 |
-| 科创板 | 上交所 | 688 | ±20% | 科技创新企业 |
-| 北交所 | 北交所 | 8 | ±30% | 专精特新 |
+
+| 板块  | 交易所     | 代码开头  | 涨跌停  | 上市门槛   |
+| --- | ------- | ----- | ---- | ------ |
+| 主板  | 上交所/深交所 | 60/00 | ±10% | 盈利要求高  |
+| 创业板 | 深交所     | 300   | ±20% | 成长型企业  |
+| 科创板 | 上交所     | 688   | ±20% | 科技创新企业 |
+| 北交所 | 北交所     | 8     | ±30% | 专精特新   |
 
 **指数编制三要素：**
+
 1. **样本选择**：全样本（上证综指）vs 成分股（沪深300）
 2. **加权方式**：市值加权（主流）、等权、价格加权
 3. **调整机制**：定期调整（半年/季度）+ 临时调整
 
 **市场广度指标解读：**
+
 - 涨跌比率 > 1.5 → 市场强势，多数股票上涨
 - 涨跌比率 < 0.5 → 市场弱势，多数股票下跌
 - 涨停家数激增 → 市场情绪亢奋，需警惕短期过热
@@ -133,16 +137,19 @@ graph TB
 #### 学习资料
 
 **入门教程：**
+
 - [上交所投资者教育 — 股市新手村](https://edu.sse.com.cn/) — 交易所官方教程，权威可靠
 - [平安证券投资者教育基地](https://edu.stock.pingan.com/) — 从开户到交易的免费视频教程
 - [知乎 2026 股市分析思路](https://zhuanlan.zhihu.com/p/1999423823896913760) — K线、看盘、财报、策略的完整知识框架
 
 **Streamlit 可视化：**
+
 - [st.metric API 文档](https://docs.streamlit.io/develop/api-reference/data/st.metric) — 指标卡片组件
 - [st.columns API 文档](https://docs.streamlit.io/develop/api-reference/layout/st.columns) — 多列布局
 - [Plotly 折线图教程](https://plotly.com/python/line-and-scatter/) — go.Scatter 用法
 
 **视频课程：**
+
 - [B站 — Streamlit 可视化看板教程](https://www.bilibili.com/video/BV1YM4y1A7jt/) — 数据看板搭建实战
 - [B站 — Streamlit + Plotly 制作数据看板](https://www.bilibili.com/video/BV1Ks4y1g7m3/) — 完整项目演示
 
@@ -170,7 +177,7 @@ graph TD
     N --> O["Plotly 图表"]
 ```
 
----
+***
 
 ### 2.2 每日选股
 
@@ -205,12 +212,14 @@ graph TD
 #### 知识点详解
 
 **多因子选股模型原理：**
+
 - 本质：将多个独立的选股条件（因子）按权重组合打分，综合排名
 - 因子分类：估值因子（PE/PB）、质量因子（ROE）、动量因子（涨跌幅）、技术因子（MA/MACD）
 - SmileX 的 5 因子模型：均线排列(30) + MACD金叉(20) + 量比(20) + 布林带(15) + RSI(15) = 满分 100
 - 进阶方向：因子有效性检验（IC/IR 值）、因子权重优化（等权/优化加权）、因子中性化
 
 **评分权重设计思路：**
+
 - 均线排列（30 分）：趋势是技术分析核心，多头排列意味着多个周期一致看多
 - MACD 金叉（20 分）：趋势确认信号，但滞后性强，需配合其他因子
 - 量比（20 分）：量价配合是技术分析基石，放量突破更可靠
@@ -218,6 +227,7 @@ graph TD
 - RSI 适中（15 分）：排除极端区域（超买/超卖），保留合理空间
 
 **常见选股误区：**
+
 - 单一指标决策：任何指标都有失效场景，必须多因子组合
 - 忽略量价配合：价格信号无放量支撑 = 可靠性低
 - 过度拟合历史数据：回测收益极高 ≠ 实盘有效
@@ -226,30 +236,34 @@ graph TD
 
 **pandas 核心操作速查：**
 
-| 操作 | 代码 | 说明 |
-|------|------|------|
-| 滚动均值 | `df["close"].rolling(5).mean()` | MA5 |
-| 条件筛选 | `df[df["score"] > 50]` | 评分过滤 |
-| 排序 | `df.sort_values("score", ascending=False)` | 按分数降序 |
-| 重置索引 | `df.reset_index(drop=True)` | 排序后重建索引 |
-| 列拼接 | `"；".join(reasons)` | 评分理由合并 |
+| 操作   | 代码                                         | 说明      |
+| ---- | ------------------------------------------ | ------- |
+| 滚动均值 | `df["close"].rolling(5).mean()`            | MA5     |
+| 条件筛选 | `df[df["score"] > 50]`                     | 评分过滤    |
+| 排序   | `df.sort_values("score", ascending=False)` | 按分数降序   |
+| 重置索引 | `df.reset_index(drop=True)`                | 排序后重建索引 |
+| 列拼接  | `"；".join(reasons)`                        | 评分理由合并  |
 
 #### 学习资料
 
 **多因子模型：**
+
 - [BigQuant 多因子选股模型代码](https://bigquant.com/wiki/topic/4d35240c98) — 从因子分析到组合构建的完整代码
 - [国信证券多因子策略原理（PDF）](https://www3.guosen.com.cn/guosen/newxwfiles/upload/2020/02/17/ba911431.pdf) — 机构级理论入门
 - [51CTO Python 多因子选股教程](https://blog.51cto.com/u_16175508/6916310) — 面向开发者的代码教程
 
 **视频课程：**
+
 - [B站 — Python 量化交易零基础教程（426 集）](https://www.bilibili.com/video/BV1z5kfBKE4Z/) — 最全量化入门
 - [B站 — 2025 Python 金融分析实战](https://www.bilibili.com/video/BV1YFcbe8E8X/) — 时间序列到因子选股
 
 **pandas 数据处理：**
+
 - [利用 Pandas 做股票数据分析](https://pandas.liuzaoqi.com/doc/chapter6/%E8%82%A1%E7%A5%A8%E6%95%B0%E6%8D%AE%E5%88%86%E6%9E%90.html) — 真实股票数据操作演示
 - [菜鸟教程 — Pandas 股票数据分析](https://www.runoob.com/pandas/pandas-stock.html) — 经典入门
 
 **避坑指南：**
+
 - [量化交易员避坑指南（知乎）](https://zhuanlan.zhihu.com/p/1929126085762745014) — 平台选择和策略开发注意事项
 - [从零构建第一个量化策略（博客园）](https://www.cnblogs.com/mthoutai/p/19670969) — 完整闭环实战
 
@@ -280,7 +294,7 @@ graph TD
     L --> Q["量比"]
 ```
 
----
+***
 
 ### 2.3 个股分析
 
@@ -315,6 +329,7 @@ graph TD
 #### 知识点详解
 
 **K 线（蜡烛图）读图要点：**
+
 - 阳线（涨）：收盘 > 开盘，实体为红色（中国惯例）或绿色（西方惯例）
 - 阴线（跌）：收盘 < 开盘，实体为绿色（中国）或红色（西方）
 - 上影线：最高价与实体上端的距离，越长说明上方抛压越大
@@ -322,24 +337,28 @@ graph TD
 - 十字星：开盘≈收盘，表示多空力量平衡，可能是反转信号
 
 **均线系统实战解读：**
-| 均线 | 周期 | 含义 |
-|------|------|------|
-| MA5 | 1 周 | 超短期趋势，日内交易者关注 |
-| MA10 | 2 周 | 短期趋势，与 MA5 的金叉/死叉有参考价值 |
-| MA20 | 1 月 | 中期趋势，常被称为"月线"，是波段交易的分水岭 |
+
+| 均线   | 周期  | 含义                        |
+| ---- | --- | ------------------------- |
+| MA5  | 1 周 | 超短期趋势，日内交易者关注             |
+| MA10 | 2 周 | 短期趋势，与 MA5 的金叉/死叉有参考价值    |
+| MA20 | 1 月 | 中期趋势，常被称为"月线"，是波段交易的分水岭   |
 | MA60 | 1 季 | 长期趋势，站上 MA60 通常被认为是中期上升趋势 |
 
 **多头排列 vs 空头排列：**
+
 - 多头排列：MA5 > MA10 > MA20 > MA60 → 各周期趋势一致向上 → 看涨
 - 空头排列：MA5 < MA10 < MA20 < MA60 → 各周期趋势一致向下 → 看跌
 - 均线纠缠：各均线接近交叉 → 趋势不明朗，等待方向选择
 
 **前复权 vs 后复权 vs 不复权：**
+
 - 前复权（qfq）：以最新价为基准向前调整 → 本项目使用，K 线连续性好
 - 后复权（hfq）：以上市价为基准向后调整 → 用于计算真实总收益率
 - 不复权：原始价格 → 有除权跳空缺口，不适合技术分析
 
 **Plotly 关键 API：**
+
 ```python
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -360,18 +379,21 @@ fig.add_trace(go.Candlestick(
 #### 学习资料
 
 **K 线和技术分析经典：**
+
 - 《日本蜡烛图技术》— Steve Nison — K 线分析必读经典
 - 《股市趋势技术分析》（第10版）— Edwards & Magee — 技术分析"圣经"
 - [B站 — 技术分析新手入门系列](https://www.bilibili.com/video/BV1xf4y1t7YB/) — MA/MACD/RSI/KDJ/BOLL 每个指标 10 分钟讲透
 
 **技术指标深入：**
+
 - [BigQuant 量化策略指标解析](https://bigquant.com/wiki/doc/C54hzJxRqd) — 各指标量化策略应用，含代码
 - [博客园 — MACD/RSI/KDJ/BOLL 详解](https://www.cnblogs.com/lsgxeva/p/19063828) — 详细公式与使用场景
 - [Titan FX — 布林带实战策略](https://research.titanfx.com/cn/technical-analysis/bollinger-bands/bollinger-bands-strategies) — 6 大布林带交易策略
 
 **Plotly 可视化：**
+
 - [Plotly Candlestick 参考文档](https://plotly.com/python/reference/candlestick/) — K 线图全部属性
-- [Plotly 子图指南](https://plotly.com/python/subplots/) — make_subplots 完整教程
+- [Plotly 子图指南](https://plotly.com/python/subplots/) — make\_subplots 完整教程
 
 #### 实践练习
 
@@ -398,7 +420,7 @@ graph TD
     K --> N["go.Candlestick"]
 ```
 
----
+***
 
 ### 2.4 策略回测
 
@@ -436,14 +458,14 @@ graph TD
 
 **Backtrader 核心架构（对应 Java 开发者思维）：**
 
-| Backtrader 组件 | 职责 | Java 类比 |
-|----------------|------|----------|
-| Cerebro | 回测引擎，编排所有组件 | Spring ApplicationContext |
-| Strategy | 交易逻辑，每根 K 线调用 `next()` | 业务 Service 类 |
-| Data Feed | 输入数据（OHLCV） | 数据源/Repository |
-| Broker | 资金管理、下单执行 | 交易网关接口 |
-| Indicator | 技术指标计算 | 工具/Helper 类 |
-| Observer | 监控资金曲线、交易记录 | AOP 切面/监听器 |
+| Backtrader 组件 | 职责                     | Java 类比                   |
+| ------------- | ---------------------- | ------------------------- |
+| Cerebro       | 回测引擎，编排所有组件            | Spring ApplicationContext |
+| Strategy      | 交易逻辑，每根 K 线调用 `next()` | 业务 Service 类              |
+| Data Feed     | 输入数据（OHLCV）            | 数据源/Repository            |
+| Broker        | 资金管理、下单执行              | 交易网关接口                    |
+| Indicator     | 技术指标计算                 | 工具/Helper 类               |
+| Observer      | 监控资金曲线、交易记录            | AOP 切面/监听器                |
 
 **两种信号生成方式对比：**
 
@@ -462,15 +484,16 @@ if self.crossover > 0:  # 金叉
 
 **绩效指标公式与含义：**
 
-| 指标 | 公式 | 含义 | 好的标准 |
-|------|------|------|---------|
-| 总收益率 | (期末-期初)/期初 | 绝对盈亏 | > 0 |
-| 年化收益率 | (1+总)^(252/天数)-1 | 标准化到年度 | > 15% |
-| 最大回撤 | max((peak-valley)/peak) | 最坏情况亏多少 | < 20% |
-| 胜率 | 盈利次数/总次数 | 每笔交易成功概率 | > 50% |
-| 夏普比率 | (收益-无风险)/标准差 | 风险调整后收益 | > 1.0 |
+| 指标    | 公式                      | 含义       | 好的标准  |
+| ----- | ----------------------- | -------- | ----- |
+| 总收益率  | (期末-期初)/期初              | 绝对盈亏     | > 0   |
+| 年化收益率 | (1+总)^(252/天数)-1        | 标准化到年度   | > 15% |
+| 最大回撤  | max((peak-valley)/peak) | 最坏情况亏多少  | < 20% |
+| 胜率    | 盈利次数/总次数                | 每笔交易成功概率 | > 50% |
+| 夏普比率  | (收益-无风险)/标准差            | 风险调整后收益  | > 1.0 |
 
 **回测六大陷阱（新手必读）：**
+
 1. **未来函数**：使用了当时不可能知道的数据（如当日收盘价做当日买入判断）
 2. **幸存者偏差**：只回测至今还存在的股票，忽略已退市的
 3. **过拟合**：参数过度优化历史数据，实盘表现差
@@ -481,6 +504,7 @@ if self.crossover > 0:  # 金叉
 #### 学习资料
 
 **Backtrader 教程：**
+
 - [Backtrader 官方快速入门](https://www.backtrader.com/docu/quickstart/quickstart/) — 逐步编写第一个策略
 - [Backtrader 策略开发指南](https://www.backtrader.com/docu/strategy/) — Strategy 类完整参考
 - [Backtrader 指标使用](https://www.backtrader.com/docu/induse/) — 122 个内置指标
@@ -489,14 +513,17 @@ if self.crossover > 0:  # 金叉
 - [掘金 — Backtrader 入门系列](https://juejin.cn/post/6900356748134055944) — 逐步讲解技术细节
 
 **视频课程：**
+
 - [B站 — Backtrader 回测框架代码实战](https://www.bilibili.com/video/BV1QR4y147rS/) — 量化入门系列
 - [B站 — Python 量化交易从入门到实战](https://www.bilibili.com/video/BV1nbtgzHEY2/) — 覆盖回测全流程
 
 **回测避坑：**
+
 - [最大回撤计算 3 个典型错误（CSDN）](https://blog.csdn.net/q3r4s5t/article/details/151137114) — 90% 新手会犯
 - [夏普比率计算 3 个易犯错误（CSDN）](https://blog.csdn.net/weixin_30555125/article/details/159357770) — 时间尺度、无风险利率处理
 
 **书籍推荐：**
+
 - 《BackTrader 量化交易案例图解》— 从入门角度讲解，结合 A 股实盘数据
 - 《Python 量化交易实战》— 从基础到回测，注重原理与实战结合
 
@@ -530,7 +557,7 @@ graph TD
     Q --> S["Backtrader CrossOver"]
 ```
 
----
+***
 
 ### 2.5 历史推荐
 
@@ -562,30 +589,32 @@ graph TD
 
 **CSV vs JSONL 选型对比：**
 
-| 特性 | CSV | JSONL |
-|------|-----|-------|
-| 适用场景 | 表格数据（行列表结构） | 事件流/日志（字段可能变化） |
-| 读取方式 | `pd.read_csv()` → DataFrame | 逐行 `json.loads()` |
-| 写入方式 | `df.to_csv()` | 逐行 `json.dumps() + "\n"` |
-| 追加写入 | 需注意表头 | 天然支持追加 |
-| 可读性 | 表格形式，直观 | 每行一个 JSON 对象 |
-| 字段变化 | 不支持（需统一 schema） | 支持（每行独立） |
+| 特性   | CSV                         | JSONL                    |
+| ---- | --------------------------- | ------------------------ |
+| 适用场景 | 表格数据（行列表结构）                 | 事件流/日志（字段可能变化）           |
+| 读取方式 | `pd.read_csv()` → DataFrame | 逐行 `json.loads()`        |
+| 写入方式 | `df.to_csv()`               | 逐行 `json.dumps() + "\n"` |
+| 追加写入 | 需注意表头                       | 天然支持追加                   |
+| 可读性  | 表格形式，直观                     | 每行一个 JSON 对象             |
+| 字段变化 | 不支持（需统一 schema）             | 支持（每行独立）                 |
 
 **本项目的持久化模式：**
+
 ```
 扫描结果 → CSV（scan_YYYYMMDD.csv）→ 按日期归档，支持历史回看
 通知记录 → JSONL（notifications.jsonl）→ 追加写入，记录每次推送
 ```
 
 **日期命名约定最佳实践：**
+
 - 格式：`scan_20250529.csv` — YYYYMMDD 保证文件名排序=时间排序
 - 好处：`os.listdir().sort(reverse=True)` 即可获取最新文件
 - 进阶：可改为 `scan_20250529_153000.csv` 包含精确时间
 
 #### 学习资料
 
-- [pandas to_csv 文档](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_csv.html) — CSV 写入参数详解
-- [pandas read_csv 文档](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html) — CSV 读取参数详解
+- [pandas to\_csv 文档](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_csv.html) — CSV 写入参数详解
+- [pandas read\_csv 文档](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html) — CSV 读取参数详解
 - Python 内置 [json 模块文档](https://docs.python.org/zh-cn/3/library/json.html) — JSONL 的基础
 
 #### 实践练习
@@ -606,7 +635,7 @@ graph LR
     F --> G["pandas 读取"]
 ```
 
----
+***
 
 ### 2.6 资讯查询
 
@@ -642,6 +671,7 @@ graph LR
 #### 知识点详解
 
 **北向资金（"聪明钱"）：**
+
 - 定义：通过沪股通+深股通从香港流入 A 股的外资
 - 为什么重要：北向资金被视为"聪明钱"，其流向常领先于市场走势
 - 数据获取：`ak.stock_hsgt_north_net_flow_in_em()`（本项目 `em.py` 已实现）
@@ -651,6 +681,7 @@ graph LR
   - 关注重仓股变动：`ak.stock_hsgt_hold_detail_em()`
 
 **龙虎榜（主力动向）：**
+
 - 定义：交易所每日公布的异动股票榜单，披露买卖前五名营业部
 - 上榜条件：日涨跌幅偏离值达 ±7%（主板）/ ±15%（创业板）、换手率达 20% 等
 - 数据获取：`ak.stock_lhb_detail_em()`（本项目 `em.py` 已实现）
@@ -660,6 +691,7 @@ graph LR
   - 买卖力度对比：买一金额 vs 卖一金额
 
 **融资融券（杠杆情绪）：**
+
 - 融资 = 借钱买股票（看多），融券 = 借股票卖出（看空）
 - 融资余额上升 → 市场看多情绪增强
 - 融券余额上升 → 市场看空情绪增强
@@ -667,6 +699,7 @@ graph LR
 - 数据获取：`ak.stock_margin_sse()`（本项目 `em.py` 已实现）
 
 **多源数据架构设计模式：**
+
 ```
 每个数据源独立模块（consult/*.py）
     ↓ 统一输出 DataFrame（columns: source, title, content, url, ...）
@@ -680,17 +713,20 @@ dashboard 展示
 #### 学习资料
 
 **市场数据概念入门：**
+
 - [新手如何快速看懂股票基本面](https://ag.yueniuzq.com/stock/novice-first-lesson-how-to-quickly-read-stock-fundamentals/) — 快速阅读基本面指南
 - [CSDN — A 股财务分析 12 个核心指标](https://blog.csdn.net/T20151470/article/details/159355480) — 从公式到 Python 代码
 - [雪球 — PE/PB/ROE 三者关系](https://xueqiu.com/1912665285/114308475) — 核心公式 PB/PE = ROE
 
 **AKShare 数据接口：**
+
 - [AKShare 官方数据字典](https://akshare.akfamily.xyz/data/index.html) — 所有函数索引，导航到 A股查看
 - [CSDN — 从零开始玩量化：AKShare 入门](https://blog.csdn.net/u010214511/article/details/124832321) — 完整入门教程
 - [CSDN — AKShare 获取 A 股板块数据](https://blog.csdn.net/hzether/article/details/146106733) — 行业/概念/风格板块
 - [知乎 — Python 和 AKShare 自动化收集股票数据](https://zhuanlan.zhihu.com/p/4875291787) — 自动化下载清洗实战
 
 **数据源对比：**
+
 - [知乎 — Python 常用金融数据接口库对比](https://zhuanlan.zhihu.com/p/1940820032784429315) — yfinance vs AKShare
 - [CSDN — AKShare vs Tushare 对比](https://blog.csdn.net/zai_yuzhong/article/details/146549867) — 功能、费用、易用性对比
 
@@ -726,7 +762,7 @@ graph TD
     P --> S["URL 去重"]
 ```
 
----
+***
 
 ### 2.7 系统设置
 
@@ -744,7 +780,7 @@ graph TD
 
 - **APScheduler**：Python 后台任务调度框架（Java 开发者可类比 Quartz Scheduler）
 - **三种触发器**：cron（定时执行，如每日 15:30）、interval（间隔执行，如每 30 秒）
-- **session_state**：Streamlit 跨 rerun 保持状态的机制，用于持有调度器实例
+- **session\_state**：Streamlit 跨 rerun 保持状态的机制，用于持有调度器实例
 - **JSON 配置持久化**：`scheduler_config.json` 保存用户配置
 - **三个独立任务**：每日选股（cron）、新闻同步（interval）、大盘同步（interval）
 
@@ -753,7 +789,7 @@ graph TD
 1. **APScheduler 架构**：`BackgroundScheduler`、Job、Trigger 三大组件
 2. **Cron 表达式**：`hour=15, minute=30` 表示每个交易日 15:30 执行
 3. **Interval 触发器**：`seconds=30` 每 30 秒执行一次
-4. **Streamlit session_state**：`st.session_state["_scheduler"]` 跨 rerun 保持调度器实例
+4. **Streamlit session\_state**：`st.session_state["_scheduler"]` 跨 rerun 保持调度器实例
 5. **配置管理模式**：`load_config()` / `save_config()` JSON 读写
 6. **调度器生命周期**：start / stop / shutdown 的状态管理
 
@@ -761,23 +797,25 @@ graph TD
 
 **APScheduler vs Quartz（Java）对照：**
 
-| 特性 | APScheduler (Python) | Quartz (Java) |
-|------|---------------------|---------------|
-| 调度器类型 | BackgroundScheduler（线程）| Scheduler（线程池）|
-| Cron 触发器 | `hour=15, minute=30` | `"0 30 15 * * ?"` |
-| Interval 触发器 | `seconds=30` | `simpleSchedule().withIntervalInSeconds(30)` |
-| 持久化 | 可选（默认内存） | 支持 JDBC JobStore |
-| 集群 | 不支持 | 支持 |
-| 适用场景 | 单机脚本/轻量服务 | 企业级应用 |
+| 特性           | APScheduler (Python)    | Quartz (Java)                                |
+| ------------ | ----------------------- | -------------------------------------------- |
+| 调度器类型        | BackgroundScheduler（线程） | Scheduler（线程池）                               |
+| Cron 触发器     | `hour=15, minute=30`    | `"0 30 15 * * ?"`                            |
+| Interval 触发器 | `seconds=30`            | `simpleSchedule().withIntervalInSeconds(30)` |
+| 持久化          | 可选（默认内存）                | 支持 JDBC JobStore                             |
+| 集群           | 不支持                     | 支持                                           |
+| 适用场景         | 单机脚本/轻量服务               | 企业级应用                                        |
 
-**Streamlit session_state 原理：**
+**Streamlit session\_state 原理：**
+
 - Streamlit 每次用户交互都会重新执行整个脚本（rerun）
 - `st.session_state` 是跨 rerun 持久化的字典，类似于 HTTP Session
 - 本项目用 `st.session_state["_scheduler"]` 持有 APScheduler 实例
-- **关键**：如果不在 session_state 中保存，调度器实例会在 rerun 时丢失
+- **关键**：如果不在 session\_state 中保存，调度器实例会在 rerun 时丢失
 - Java 类比：类似 `@SessionScope` Bean
 
 **本项目的三个调度任务设计：**
+
 ```
 每日选股（cron）        → 每天 15:30 执行一次 → 收盘后扫描全市场
 新闻同步（interval）    → 每 30 秒执行一次   → 实时获取最新快讯
@@ -785,6 +823,7 @@ graph TD
 ```
 
 **调度器生命周期管理：**
+
 ```
 start_scheduler() → 创建 BackgroundScheduler → 注册 jobs → start()
 stop_scheduler()  → shutdown(wait=False) → 清理 session_state
@@ -794,14 +833,16 @@ restart           → 先 stop 再 start（先关闭旧实例再创建新的）
 #### 学习资料
 
 **APScheduler：**
+
 - [APScheduler 官方文档（3.x）](https://apscheduler.readthedocs.io/en/3.x/) — 完整 API 参考
 - [APScheduler 用户指南](https://apscheduler.readthedocs.io/en/3.x/userguide.html) — 四大组件详解
 - [CronTrigger API](https://apscheduler.readthedocs.io/en/3.x/modules/triggers/cron.html) — Cron 触发器参数
 - [IntervalTrigger API](https://apscheduler.readthedocs.io/en/3.x/modules/triggers/interval.html) — Interval 触发器参数
 - [Better Stack — APScheduler 实用指南](https://betterstack.com/community/guides/scaling-python/apscheduler-scheduled-tasks/) — 安装到实战
 
-**Streamlit session_state：**
-- [st.session_state 官方文档](https://docs.streamlit.io/develop/api-reference/caching-and-state/st.session_state) — 状态持久化机制
+**Streamlit session\_state：**
+
+- [st.session\_state 官方文档](https://docs.streamlit.io/develop/api-reference/caching-and-state/st.session_state) — 状态持久化机制
 - [Streamlit 多页应用指南](https://docs.streamlit.io/develop/concepts/multipage-apps/overview) — 多页应用架构
 
 #### 实践练习
@@ -829,7 +870,7 @@ graph TD
     L --> N["JSON 配置<br/>持久化用户设置"]
 ```
 
----
+***
 
 ### 2.8 数据采集层
 
@@ -837,7 +878,7 @@ graph TD
 >
 > **难度**：入门
 >
-> **Java 对照**：AKShare ~ 各类 Java HTTP 客户端封装的金融 API（如 Tushare SDK）
+> **Java 对照**：AKShare \~ 各类 Java HTTP 客户端封装的金融 API（如 Tushare SDK）
 
 #### 前置知识
 
@@ -865,22 +906,24 @@ graph TD
 
 **A股数据接口库对比：**
 
-| 特性 | AKShare（本项目使用） | Tushare | BaoStock |
-|------|-----|---------|---------|
-| 费用 | 完全免费开源 | 免费但部分接口需积分 | 免费开源 |
-| 注册 | 无需注册 | 需注册获取 Token | 无需注册 |
-| 数据范围 | 全球多市场 | A 股为主 | A 股为主 |
-| 更新频率 | 频繁更新 | 相对稳定 | 较少更新 |
-| 数据质量 | 高（来源东方财富等） | 高 | 一般 |
-| 推荐场景 | 学习研究首选 | 需要稳定接口时 | 历史数据补充 |
+| 特性   | AKShare（本项目使用） | Tushare     | BaoStock |
+| ---- | -------------- | ----------- | -------- |
+| 费用   | 完全免费开源         | 免费但部分接口需积分  | 免费开源     |
+| 注册   | 无需注册           | 需注册获取 Token | 无需注册     |
+| 数据范围 | 全球多市场          | A 股为主       | A 股为主    |
+| 更新频率 | 频繁更新           | 相对稳定        | 较少更新     |
+| 数据质量 | 高（来源东方财富等）     | 高           | 一般       |
+| 推荐场景 | 学习研究首选         | 需要稳定接口时     | 历史数据补充   |
 
 **复权处理详解（以分红为例）：**
+
 - 假设某股 100 元，每 10 股派 10 元（即每股 1 元）
 - 除权日开盘价 = 100 - 1 = 99 元 → 不复权 K 线出现"跳空缺口"
 - 前复权：调整历史价格 → 99 元之前的价格都减 1 → K 线连续，适合技术分析
 - 后复权：调整后续价格 → 反映真实总收益（含分红），适合计算总回报
 
 **本项目数据清洗模式（fetcher.py 典型流程）：**
+
 ```python
 df = ak.stock_zh_a_spot_em()              # 1. 获取原始数据（中文列名）
 df = df[~df["名称"].str.contains("ST|退")] # 2. 过滤不需要的数据
@@ -890,17 +933,19 @@ df = df.reset_index(drop=True)             # 5. 重置索引
 ```
 
 **AKShare 核心 API 速查：**
-| 函数 | 用途 | 本项目封装 |
-|------|------|-----------|
-| `ak.stock_zh_a_spot_em()` | 全市场实时行情 | `stock_list()`, `realtime_quote()` |
-| `ak.stock_zh_a_hist()` | 个股历史 K 线 | `daily_history()` |
-| `ak.stock_zh_index_daily()` | 指数日 K 线 | `index_daily()` |
-| `ak.stock_board_industry_name_em()` | 行业板块列表 | `sector_list()` |
-| `ak.stock_individual_info_em()` | 个股基本信息 | `stock_info()` |
+
+| 函数                                  | 用途       | 本项目封装                              |
+| ----------------------------------- | -------- | ---------------------------------- |
+| `ak.stock_zh_a_spot_em()`           | 全市场实时行情  | `stock_list()`, `realtime_quote()` |
+| `ak.stock_zh_a_hist()`              | 个股历史 K 线 | `daily_history()`                  |
+| `ak.stock_zh_index_daily()`         | 指数日 K 线  | `index_daily()`                    |
+| `ak.stock_board_industry_name_em()` | 行业板块列表   | `sector_list()`                    |
+| `ak.stock_individual_info_em()`     | 个股基本信息   | `stock_info()`                     |
 
 #### 学习资料
 
 **AKShare 入门：**
+
 - [AKShare 官方文档](https://akshare.akfamily.xyz/) — 入口页面，含安装和教程
 - [AKShare 快速入门](https://akshare.akfamily.xyz/tutorial.html) — 官方教程
 - [AKShare 数据字典](https://akshare.akfamily.xyz/data/index.html) — 所有 API 函数索引
@@ -908,6 +953,7 @@ df = df.reset_index(drop=True)             # 5. 重置索引
 - [AKTools 在线 API 浏览器](https://aktools.akfamily.xyz/) — 交互式测试 API
 
 **中文教程：**
+
 - [CSDN — 从零开始玩量化：AKShare 入门](https://blog.csdn.net/u010214511/article/details/124832321) — 适合初学者的完整教程
 - [知乎 — Python 和 AKShare 自动化收集股票数据](https://zhuanlan.zhihu.com/p/4875291787) — 自动化下载清洗
 - [CSDN — AKShare vs Tushare 对比](https://blog.csdn.net/zai_yuzhong/article/details/146549867) — 选型参考
@@ -938,7 +984,7 @@ graph TD
     F --> F3["复权处理<br/>adjust=qfq"]
 ```
 
----
+***
 
 ### 2.9 技术指标层
 
@@ -946,7 +992,7 @@ graph TD
 >
 > **难度**：中级
 >
-> **Java 对照**：pandas rolling ~ Java Stream 的滑动窗口；pandas-ta ~ TA4J（Java 技术分析库）
+> **Java 对照**：pandas rolling \~ Java Stream 的滑动窗口；pandas-ta \~ TA4J（Java 技术分析库）
 
 #### 前置知识
 
@@ -958,14 +1004,14 @@ graph TD
 
 本项目实现了 6 种经典技术指标：
 
-| 指标 | 类型 | 计算方式 | 金融含义 |
-|------|------|---------|---------|
-| MA（移动平均线） | 趋势 | `close.rolling(N).mean()` | N 日平均价格，平滑短期波动 |
-| MACD | 趋势/动量 | pandas-ta `ta.macd()` | 快慢均线差值，判断趋势方向和强度 |
-| RSI（相对强弱） | 动量 | pandas-ta `ta.rsi()` | 0-100 区间，>70 超买，<30 超卖 |
-| 布林带 | 波动率 | pandas-ta `ta.bbands()` | 中轨±2倍标准差，衡量价格波动范围 |
-| KDJ（随机指标） | 动量 | 手动计算（RSV→K→D→J） | 衡量收盘价在近期价格区间中的位置 |
-| 量比 | 成交量 | `volume / volume.rolling(5).mean().shift(1)` | 当前成交量与 5 日均量的比值 |
+| 指标        | 类型    | 计算方式                                         | 金融含义                   |
+| --------- | ----- | -------------------------------------------- | ---------------------- |
+| MA（移动平均线） | 趋势    | `close.rolling(N).mean()`                    | N 日平均价格，平滑短期波动         |
+| MACD      | 趋势/动量 | pandas-ta `ta.macd()`                        | 快慢均线差值，判断趋势方向和强度       |
+| RSI（相对强弱） | 动量    | pandas-ta `ta.rsi()`                         | 0-100 区间，>70 超买，<30 超卖 |
+| 布林带       | 波动率   | pandas-ta `ta.bbands()`                      | 中轨±2倍标准差，衡量价格波动范围      |
+| KDJ（随机指标） | 动量    | 手动计算（RSV→K→D→J）                              | 衡量收盘价在近期价格区间中的位置       |
+| 量比        | 成交量   | `volume / volume.rolling(5).mean().shift(1)` | 当前成交量与 5 日均量的比值        |
 
 #### 学习主题
 
@@ -982,6 +1028,7 @@ graph TD
 **6 种技术指标数学公式与代码对照：**
 
 **1. MA（移动平均线）— 趋势指标**
+
 ```
 公式：MA(N) = Σ(close[i]) / N   (i = 0..N-1)
 代码：df["close"].rolling(window=N).mean()
@@ -989,6 +1036,7 @@ graph TD
 ```
 
 **2. MACD（指数平滑异同移动平均线）— 趋势/动量指标**
+
 ```
 公式：
   DIF = EMA(close, 12) - EMA(close, 26)    ← 快线-慢线
@@ -1000,6 +1048,7 @@ graph TD
 ```
 
 **3. RSI（相对强弱指标）— 动量指标**
+
 ```
 公式：
   涨幅平均 = avg(涨的日子, 14天)
@@ -1011,6 +1060,7 @@ graph TD
 ```
 
 **4. 布林带（Bollinger Bands）— 波动率指标**
+
 ```
 公式：
   中轨 = MA(close, 20)
@@ -1022,6 +1072,7 @@ graph TD
 ```
 
 **5. KDJ（随机指标）— 动量指标**
+
 ```
 公式：
   RSV = (close - LowMin9) / (HighMax9 - LowMin9) × 100
@@ -1038,6 +1089,7 @@ graph TD
 ```
 
 **6. 量比 — 成交量指标**
+
 ```
 公式：量比 = 当日成交量 / 过去5日平均成交量
 代码：df["volume"] / df["volume"].rolling(5).mean().shift(1)
@@ -1046,6 +1098,7 @@ graph TD
 ```
 
 **pandas 三个核心操作速查：**
+
 ```python
 # rolling — 滑动窗口（计算移动平均）
 df["close"].rolling(window=20).mean()        # MA20
@@ -1063,22 +1116,26 @@ df["close"].shift(1)         # 昨日收盘价
 #### 学习资料
 
 **技术指标教程：**
+
 - [B站 — 技术分析新手入门系列](https://www.bilibili.com/video/BV1xf4y1t7YB/) — 每个指标 10 分钟讲透
 - [BigQuant 量化策略指标解析](https://bigquant.com/wiki/doc/C54hzJxRqd) — 含代码的指标策略应用
 - [博客园 — MACD/RSI/KDJ/BOLL 详解](https://www.cnblogs.com/lsgxeva/p/19063828) — 公式与使用场景
 - [Titan FX — 布林带实战策略](https://research.titanfx.com/cn/technical-analysis/bollinger-bands/bollinger-bands-strategies) — 6 大交易策略
 
 **pandas 核心操作：**
+
 - [pandas rolling API](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.rolling.html) — 滑动窗口
 - [pandas ewm API](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.ewm.html) — 指数加权
 - [pandas shift API](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.shift.html) — 数据平移
 - [pandas 窗口函数用户指南](https://pandas.pydata.org/docs/user_guide/window.html) — rolling/ewm 综合指南
 
 **pandas-ta 库：**
+
 - [pandas-ta GitHub（推荐分支）](https://github.com/xgboosted/pandas-ta-classic) — 192 个指标，活跃维护
 - [pandas-ta ReadTheDocs](https://technical-analysis-library-in-python.readthedocs.io/) — API 文档
 
 **书籍推荐：**
+
 - 《布林线（珍藏版）》— John Bollinger — 布林带创始人的经典著作
 - 《利用 Python 进行数据分析》（第3版）— Wes McKinney — pandas 创始人写的经典
 
@@ -1109,7 +1166,7 @@ graph TD
     F --> F3["pandas ewm"]
 ```
 
----
+***
 
 ### 2.10 数据存储层
 
@@ -1117,7 +1174,7 @@ graph TD
 >
 > **难度**：入门
 >
-> **Java 对照**：SQLite + pandas ~ Spring Data JPA + H2 数据库；`to_sql()` ~ JPA `saveAll()`；`read_sql()` ~ JPA `findAll()`
+> **Java 对照**：SQLite + pandas \~ Spring Data JPA + H2 数据库；`to_sql()` \~ JPA `saveAll()`；`read_sql()` \~ JPA `findAll()`
 
 #### 前置知识
 
@@ -1129,15 +1186,16 @@ graph TD
 
 项目使用 5 张表存储数据：
 
-| 表名 | 主键 | 用途 |
-|------|------|------|
-| `stock_info` | code | 股票基本信息（代码、名称） |
-| `stock_daily` | (code, date) | 日 K 线行情数据 |
-| `index_daily` | (code, date) | 指数日 K 线数据 |
-| `news` | id (自增), url (UNIQUE) | 新闻资讯 |
-| `market_stats` | id (自增) | 市场统计快照 |
+| 表名             | 主键                    | 用途            |
+| -------------- | --------------------- | ------------- |
+| `stock_info`   | code                  | 股票基本信息（代码、名称） |
+| `stock_daily`  | (code, date)          | 日 K 线行情数据     |
+| `index_daily`  | (code, date)          | 指数日 K 线数据     |
+| `news`         | id (自增), url (UNIQUE) | 新闻资讯          |
+| `market_stats` | id (自增)               | 市场统计快照        |
 
 关键设计模式：
+
 - **临时表中转**：`save_daily()` 先写 `_tmp_daily` 临时表，再 `INSERT OR REPLACE` 合并到主表
 - **幂等写入**：`INSERT OR REPLACE`（日K数据可覆盖更新）、`INSERT OR IGNORE`（新闻按 URL 去重）
 - **复合主键**：`(code, date)` 确保每只股票每天只有一条记录
@@ -1156,14 +1214,15 @@ graph TD
 
 **SQLite vs 传统关系型数据库：**
 
-| 特性 | SQLite | MySQL/PostgreSQL |
-|------|--------|-----------------|
-| 部署 | 单文件，零配置 | 需要安装服务端 |
-| 性能 | 小数据量极快 | 大数据量/并发更优 |
-| 适用场景 | 本地应用、原型、嵌入式 | Web 服务、多用户 |
-| 本项目选择理由 | 量化工具单机使用，无需服务端 | — |
+| 特性      | SQLite         | MySQL/PostgreSQL |
+| ------- | -------------- | ---------------- |
+| 部署      | 单文件，零配置        | 需要安装服务端          |
+| 性能      | 小数据量极快         | 大数据量/并发更优        |
+| 适用场景    | 本地应用、原型、嵌入式    | Web 服务、多用户       |
+| 本项目选择理由 | 量化工具单机使用，无需服务端 | —                |
 
 **本项目 Schema 设计决策：**
+
 ```
 stock_daily 表主键 = (code, date)
   → 为什么不用自增 id？因为需要按股票+日期去重，复合主键天然去重
@@ -1174,7 +1233,8 @@ news 表主键 = id（自增），url = UNIQUE
   → 为什么用 INSERT OR IGNORE？重复新闻静默跳过，不报错
 ```
 
-**临时表中转模式详解（本项目 `save_daily()` 的核心模式）：**
+**临时表中转模式详解（本项目** **`save_daily()`** **的核心模式）：**
+
 ```python
 # Step 1: pandas 批量写入临时表（快）
 df.to_sql("_tmp_daily", conn, if_exists="replace", index=False)
@@ -1183,10 +1243,12 @@ conn.execute("INSERT OR REPLACE INTO stock_daily SELECT * FROM _tmp_daily")
 # Step 3: 清理临时表
 conn.execute("DROP TABLE _tmp_daily")
 ```
+
 - 为什么不直接 `to_sql("stock_daily")`？因为 `to_sql(if_exists="replace")` 会**删除整个表再重建**，丢失已有数据
 - 临时表模式 = 批量写入 + SQL 合并，兼顾性能和数据安全
 
 **pandas SQL 操作核心 API：**
+
 ```python
 # 写入
 df.to_sql("table_name", conn, if_exists="replace", index=False)
@@ -1203,12 +1265,14 @@ df = pd.read_sql("SELECT * FROM table WHERE code = ?", conn, params=[code])
 #### 学习资料
 
 **SQLite：**
+
 - [SQLite 官方文档](https://www.sqlite.org/docs.html) — 完整参考
 - [菜鸟教程 — SQLite](https://www.runoob.com/sqlite/sqlite-tutorial.html) — 中文入门教程
 
 **pandas SQL 集成：**
-- [pandas to_sql API](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_sql.html) — 写入参数详解
-- [pandas read_sql API](https://pandas.pydata.org/docs/reference/api/pandas.read_sql.html) — 读取参数详解
+
+- [pandas to\_sql API](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_sql.html) — 写入参数详解
+- [pandas read\_sql API](https://pandas.pydata.org/docs/reference/api/pandas.read_sql.html) — 读取参数详解
 - [Medium — Pandas 与 SQL 集成最佳实践](https://medium.com/@helvila/integrating-pandas-with-sql-best-practices-and-advanced-techniques-for-large-datasets-1a7b4cfa754e) — 大数据集技巧
 
 #### 实践练习
@@ -1237,66 +1301,71 @@ graph TD
     H --> H3["索引优化查询"]
 ```
 
----
+***
 
 ## 第三章：12 周学习计划
 
 ### 第一阶段：基础（第 1-4 周）
 
-| 周 | 学习内容 | 对应模块 | 里程碑 |
-|----|---------|---------|--------|
+| 周 | 学习内容                           | 对应模块                   | 里程碑               |
+| - | ------------------------------ | ---------------------- | ----------------- |
 | 1 | Python 语法差异（vs Java）、pandas 基础 | `config.py`、`store.py` | 能读懂 SQLite 表结构和配置 |
-| 2 | AKShare 数据获取、K 线数据结构 | `fetcher.py` | 能获取指定股票的历史数据 |
-| 3 | 技术指标数学原理 + 代码实现 | `indicators.py` | 能解释每个指标的公式和含义 |
-| 4 | Streamlit + Plotly 入门 | `01_大盘概览.py` | 能运行看板并看懂大盘页面代码 |
+| 2 | AKShare 数据获取、K 线数据结构           | `fetcher.py`           | 能获取指定股票的历史数据      |
+| 3 | 技术指标数学原理 + 代码实现                | `indicators.py`        | 能解释每个指标的公式和含义     |
+| 4 | Streamlit + Plotly 入门          | `01_大盘概览.py`           | 能运行看板并看懂大盘页面代码    |
 
 ### 第二阶段：核心（第 5-8 周）
 
-| 周 | 学习内容 | 对应模块 | 里程碑 |
-|----|---------|---------|--------|
-| 5 | 多因子选股逻辑 + 评分系统 | `scanner.py`、`02_今日推荐.py` | 能修改评分规则并运行扫描 |
-| 6 | K 线可视化 + 指标叠加 | `03_个股分析.py` | 能添加新的指标子图 |
-| 7 | Backtrader 回测框架 | `backtest.py`、`strategy.py` | 能实现一个新策略并回测 |
-| 8 | 多源数据聚合 + 新闻同步 | `consult/`、`news_sync.py` | 能新增一个数据源模块 |
+| 周 | 学习内容            | 对应模块                        | 里程碑          |
+| - | --------------- | --------------------------- | ------------ |
+| 5 | 多因子选股逻辑 + 评分系统  | `scanner.py`、`02_今日推荐.py`   | 能修改评分规则并运行扫描 |
+| 6 | K 线可视化 + 指标叠加   | `03_个股分析.py`                | 能添加新的指标子图    |
+| 7 | Backtrader 回测框架 | `backtest.py`、`strategy.py` | 能实现一个新策略并回测  |
+| 8 | 多源数据聚合 + 新闻同步   | `consult/`、`news_sync.py`   | 能新增一个数据源模块   |
 
 ### 第三阶段：进阶（第 9-12 周）
 
-| 周 | 学习内容 | 对应模块 | 里程碑 |
-|----|---------|---------|--------|
-| 9 | 任务调度 + 配置管理 | `scheduler.py`、`06_系统设置.py` | 能自定义定时任务 |
-| 10 | 代码质量：测试、错误处理、日志 | `tests/` | 为核心模块编写单元测试 |
-| 11 | 功能扩展：新指标、新策略 | `indicators.py`、`backtest.py` | 实现 ATR 指标 + RSI 策略 |
-| 12 | 架构优化：异步数据获取、缓存层 | 全局 | 优化 API 调用性能 |
+| 周  | 学习内容            | 对应模块                          | 里程碑                |
+| -- | --------------- | ----------------------------- | ------------------ |
+| 9  | 任务调度 + 配置管理     | `scheduler.py`、`06_系统设置.py`   | 能自定义定时任务           |
+| 10 | 代码质量：测试、错误处理、日志 | `tests/`                      | 为核心模块编写单元测试        |
+| 11 | 功能扩展：新指标、新策略    | `indicators.py`、`backtest.py` | 实现 ATR 指标 + RSI 策略 |
+| 12 | 架构优化：异步数据获取、缓存层 | 全局                            | 优化 API 调用性能        |
 
----
+***
 
 ## 第四章：参考资源
 
 ### Python 基础
 
 **书籍：**
+
 - 《利用 Python 进行数据分析》（第3版）— Wes McKinney — pandas 创始人的经典著作
 - 《对比 Excel，轻松学习 Python 数据分析》— 张俊红 — 以 Excel 对比方式讲解 pandas，入门友好
 
 **官方文档：**
+
 - [Python 官方教程（中文）](https://docs.python.org/zh-cn/3/tutorial/)
 - [pandas 官方文档](https://pandas.pydata.org/docs/)
 - [pandas GroupBy 指南](https://pandas.pydata.org/docs/user_guide/groupby.html) — 聚合/筛选/转换
 - [pandas 窗口函数指南](https://pandas.pydata.org/docs/user_guide/window.html) — rolling/ewm
 
 **在线教程：**
+
 - [菜鸟教程 — Pandas 股票数据分析](https://www.runoob.com/pandas/pandas-stock.html)
 - [图解 Pandas — 股票数据分析](https://pandas.liuzaoqi.com/doc/chapter6/%E8%82%A1%E7%A5%A8%E6%95%B0%E6%8D%AE%E5%88%86%E6%9E%90.html) — 真实股票数据操作
 
 ### 金融数据
 
 **官方文档：**
+
 - [AKShare 官方文档](https://akshare.akfamily.xyz/) — 入口页面
 - [AKShare 数据字典](https://akshare.akfamily.xyz/data/index.html) — 所有 API 函数索引
 - [AKShare 快速入门](https://akshare.akfamily.xyz/tutorial.html) — 官方教程
 - [BaoStock 文档](http://baostock.com/)
 
 **中文教程：**
+
 - [CSDN — 从零开始玩量化：AKShare 入门](https://blog.csdn.net/u010214511/article/details/124832321)
 - [知乎 — Python 和 AKShare 自动化收集股票数据](https://zhuanlan.zhihu.com/p/4875291787)
 - [知乎 — Python 常用金融数据接口库对比](https://zhuanlan.zhihu.com/p/1940820032784429315) — yfinance vs AKShare
@@ -1305,12 +1374,14 @@ graph TD
 ### 技术分析
 
 **经典书籍：**
+
 - 《日本蜡烛图技术》— Steve Nison — K 线分析必读经典
 - 《股市趋势技术分析》（第10版）— Edwards & Magee — 技术分析"圣经"
 - 《布林线（珍藏版）》— John Bollinger — 布林带创始人著作
 - 《技术分析（第五版）》— Martin J. Pring
 
 **在线教程：**
+
 - [B站 — 技术分析新手入门系列](https://www.bilibili.com/video/BV1xf4y1t7YB/) — 每个指标 10 分钟
 - [BigQuant 量化策略指标解析](https://bigquant.com/wiki/doc/C54hzJxRqd) — 含代码的指标策略应用
 - [博客园 — MACD/RSI/KDJ/BOLL 详解](https://www.cnblogs.com/lsgxeva/p/19063828) — 公式与场景
@@ -1319,22 +1390,26 @@ graph TD
 ### 量化交易
 
 **入门书籍：**
+
 - 《量化投资：以 Python 为工具》— 蔡立耑 — 金融科技丛书，适合入门
 - 《基于 Python 的金融分析与风险管理》— 斯文 — 244 个实操示例
 - 《打开量化投资的黑箱》— Rishi K. Narang — 系统剖析量化投资全流程
 
 **进阶书籍：**
+
 - 《Quantitative Trading》— Ernest P. Chan — 从零搭建算法交易系统
 - 《Algorithmic Trading》— Ernest P. Chan — 算法交易策略深入
 - 《Python 金融大数据分析》（第2版）— Yves Hilpisch — 全面覆盖金融分析
 
 **书单索引：**
+
 - [GitHub — 量化投资经典书单](https://github.com/jincheng9/finance_tutorial/blob/main/workspace/book/00-quant-book.md)
 - [知乎 — 10 本必备书籍推荐](https://zhuanlan.zhihu.com/p/460391143)
 - [2026 量化交易必读书单](https://waylandz.com/quant-book/)
 - [Quant Wiki — 量化百科](https://quant-wiki.com/library/book/beginner/)
 
 **在线教程：**
+
 - [知乎 — 量化文章合辑（入门到实战）](https://zhuanlan.zhihu.com/p/1991610362093655453)
 - [B站 — Python 量化交易从入门到实战](https://www.bilibili.com/video/BV1nbtgzHEY2/)
 - [B站 — Python 量化交易零基础（426 集）](https://www.bilibili.com/video/BV1z5kfBKE4Z/)
@@ -1343,12 +1418,14 @@ graph TD
 ### 回测框架
 
 **Backtrader 官方文档：**
+
 - [Backtrader 官方文档](https://www.backtrader.com/docu/)
 - [快速入门](https://www.backtrader.com/docu/quickstart/quickstart/)
 - [策略开发指南](https://www.backtrader.com/docu/strategy/)
 - [指标使用指南](https://www.backtrader.com/docu/induse/) — 122 个内置指标
 
 **中文教程：**
+
 - [知乎 — 手把手教你入门 Backtrader（系列）](https://zhuanlan.zhihu.com/p/140425363)
 - [CSDN — Backtrader 从入门到精通](https://blog.csdn.net/quant_galaxy/article/details/133125575)
 - [掘金 — Backtrader 入门系列](https://juejin.cn/post/6900356748134055944)
@@ -1356,17 +1433,19 @@ graph TD
 - [腾讯云 — BackTrader 中文文档](https://cloud.tencent.com/developer/article/2420533)
 
 **避坑指南：**
+
 - [最大回撤计算 3 个典型错误（CSDN）](https://blog.csdn.net/q3r4s5t/article/details/151137114)
 - [夏普比率计算易犯错误（CSDN）](https://blog.csdn.net/weixin_30555125/article/details/159357770)
 
 ### 可视化
 
 **官方文档：**
+
 - [Streamlit 官方文档](https://docs.streamlit.io/)
 - [Streamlit API 参考](https://docs.streamlit.io/develop/api-reference)
 - [st.metric 文档](https://docs.streamlit.io/develop/api-reference/data/st.metric)
 - [st.columns 文档](https://docs.streamlit.io/develop/api-reference/layout/st.columns)
-- [st.session_state 文档](https://docs.streamlit.io/develop/api-reference/caching-and-state/st.session_state)
+- [st.session\_state 文档](https://docs.streamlit.io/develop/api-reference/caching-and-state/st.session_state)
 - [多页应用指南](https://docs.streamlit.io/develop/concepts/multipage-apps/overview)
 - [Plotly Python 文档](https://plotly.com/python/)
 - [Plotly Candlestick 参考](https://plotly.com/python/reference/candlestick/)
@@ -1374,12 +1453,14 @@ graph TD
 - [Plotly 散点图教程](https://plotly.com/python/line-and-scatter/)
 
 **中文教程：**
+
 - [知乎 — Streamlit 教程：构建可视化 Web](https://zhuanlan.zhihu.com/p/448912854)
 - [腾讯云 — Streamlit 数据可视化面板教程](https://cloud.tencent.com/developer/article/1849025)
 - [博客园 — Plotly 与 Streamlit 结合实战](https://www.cnblogs.com/wang_yb/p/18870563)
 - [GitHub — Streamlit 中文文档翻译](https://github.com/Panda-NEUer/Streamlit-Documentation-Chinese)
 
 **视频课程：**
+
 - [B站 — Streamlit 可视化看板教程](https://www.bilibili.com/video/BV1YM4y1A7jt/)
 - [B站 — Streamlit + Plotly 数据看板](https://www.bilibili.com/video/BV1Ks4y1g7m3/)
 
@@ -1407,3 +1488,4 @@ graph TD
 
 - [pandas-ta GitHub（推荐活跃分支）](https://github.com/xgboosted/pandas-ta-classic) — 192 个指标，62 个 K 线形态
 - [pandas-ta ReadTheDocs 文档](https://technical-analysis-library-in-python.readthedocs.io/) — API 文档
+

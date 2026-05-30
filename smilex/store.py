@@ -51,9 +51,19 @@ def init_db():
             total_mv REAL,
             PRIMARY KEY (code, date)
         );
+        CREATE TABLE IF NOT EXISTS ai_analysis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            analysis_type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            summary TEXT DEFAULT '',
+            prediction TEXT DEFAULT '',
+            model TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_news_source ON news(source);
         CREATE INDEX IF NOT EXISTS idx_news_publish ON news(publish_time);
         CREATE INDEX IF NOT EXISTS idx_valuation_code ON stock_valuation(code);
+        CREATE INDEX IF NOT EXISTS idx_ai_analysis_type ON ai_analysis(analysis_type);
     """)
     conn.commit()
     conn.close()
@@ -286,5 +296,31 @@ def query_latest_valuation(codes: list[str] | None = None) -> pd.DataFrame:
             ) latest ON v.code = latest.code AND v.date = latest.max_date
         """
         df = pd.read_sql(sql, conn)
+    conn.close()
+    return df
+
+
+def save_ai_analysis(analysis_type: str, content: str, model: str,
+                     summary: str = "", prediction: str = ""):
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO ai_analysis (analysis_type, content, summary, prediction, model, created_at) "
+        "VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
+        (analysis_type, content, summary, prediction, model),
+    )
+    conn.commit()
+    conn.close()
+
+
+def query_ai_analysis(analysis_type: str = "", limit: int = 10) -> pd.DataFrame:
+    conn = _conn()
+    sql = "SELECT * FROM ai_analysis"
+    params: list = []
+    if analysis_type:
+        sql += " WHERE analysis_type = ?"
+        params.append(analysis_type)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    params.append(str(limit))
+    df = pd.read_sql(sql, conn, params=params)
     conn.close()
     return df

@@ -19,3 +19,13 @@ SCANNER_VOLUME_RATIO_MIN = 1.5
 
 DASHBOARD_PORT = 8501
 DASHBOARD_HOST = "0.0.0.0"
+
+# AI Analysis Configuration
+AI_MODEL = os.environ.get("SMILEX_AI_MODEL", "deepseek/deepseek-chat")
+AI_API_KEY = os.environ.get("SMILEX_AI_API_KEY", "")
+AI_API_BASE = os.environ.get("SMILEX_AI_API_BASE", "")
+AI_INDICES = {
+    "上证指数": "000001",
+    "深证成指": "399001",
+    "创业板指": "399006",
+}
