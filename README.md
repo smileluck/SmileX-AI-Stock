@@ -85,6 +85,15 @@ SmileX-AI-Stock/
 
 Python 3.12+ / AKShare / Backtrader / Streamlit / SQLite / pandas-ta / Plotly / APScheduler
 
+## 学习路线
+
+本项目附带完整的 12 周学习路线，面向 Java 开发者转型 Python 量化分析：
+
+- 每周独立文件，包含知识点详解、代码精读、实践练习、自测清单
+- 全局知识图谱和 Java→Python 对照速查
+
+详见 [docs/learning/](docs/learning/README.md)
+
 ## 免责声明
 
 本项目仅供学习研究，不构成任何投资建议。股市有风险，投资需谨慎。
