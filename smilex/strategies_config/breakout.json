@@ -1,0 +1,13 @@
+{
+  "name": "breakout",
+  "display_name": "突破策略",
+  "description": "唐奇安通道突破，海龟交易法则核心逻辑",
+  "category": "突破",
+  "version": "1.0",
+  "params": {
+    "entry_period": 20,
+    "exit_period": 10,
+    "volume_ratio_min": 2.0,
+    "adx_threshold": 25.0
+  }
+}

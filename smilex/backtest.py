@@ -1,55 +1,40 @@
 import backtrader as bt
 import pandas as pd
-from smilex.config import INITIAL_CAPITAL, MA_SHORT_PERIOD, MA_LONG_PERIOD
+from smilex.config import INITIAL_CAPITAL
 
 
-class MAStrategy(bt.Strategy):
-    params = (
-        ("short_period", MA_SHORT_PERIOD),
-        ("long_period", MA_LONG_PERIOD),
-    )
-
-    def __init__(self):
-        self.ma_short = bt.indicators.SMA(self.data.close, period=self.p.short_period)
-        self.ma_long = bt.indicators.SMA(self.data.close, period=self.p.long_period)
-        self.crossover = bt.indicators.CrossOver(self.ma_short, self.ma_long)
-        self.trades: list[dict] = []
-
-    def next(self):
-        if self.crossover > 0:
-            if not self.position:
-                size = int(self.broker.getcash() / self.data.close[0] / 100) * 100
-                if size > 0:
-                    self.buy(size=size)
-                    self.trades.append({
-                        "type": "BUY", "date": self.data.datetime.date(0),
-                        "price": self.data.close[0], "size": size,
-                    })
-        elif self.crossover < 0:
-            if self.position:
-                self.close()
-                self.trades.append({
-                    "type": "SELL", "date": self.data.datetime.date(0),
-                    "price": self.data.close[0], "size": self.position.size,
-                })
-
-
-def run(df: pd.DataFrame, short_period: int = MA_SHORT_PERIOD,
-        long_period: int = MA_LONG_PERIOD,
-        cash: float = INITIAL_CAPITAL) -> dict:
+def run(df: pd.DataFrame, strategy_name: str = "trend_following",
+        cash: float = INITIAL_CAPITAL, **params) -> dict:
     """运行回测并返回绩效报告"""
+    from smilex.strategies import get_strategy
+
+    strategy = get_strategy(strategy_name, **params)
+    bt_class = strategy.backtest_class
+
+    # Build params dict: only pass params that the bt.Strategy class accepts
+    bt_accepted = set()
+    if hasattr(bt_class, 'params'):
+        try:
+            bt_accepted = set(bt_class.params._getkeys())
+        except Exception:
+            pass
+    bt_params = {}
+    for key, val in strategy.params.__dict__.items():
+        if key in bt_accepted:
+            bt_params[key] = val
+
     df = df.copy()
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"])
         df.set_index("date", inplace=True)
 
     data = bt.feeds.PandasData(
-        dataview=df,
+        dataname=df,
         open="open", high="high", low="low", close="close", volume="volume",
     )
 
     cerebro = bt.Cerebro()
-    cerebro.addstrategy(MAStrategy, short_period=short_period, long_period=long_period)
+    cerebro.addstrategy(bt_class, **bt_params)
     cerebro.adddata(data)
     cerebro.broker.setcash(cash)
     cerebro.broker.setcommission(commission=0.00025)

@@ -12,9 +12,9 @@ from smilex.notify import push, push_scan
 CONFIG_FILE = os.path.join(HISTORY_DIR, "scheduler_config.json")
 
 
-def run_daily_job():
+def run_daily_job(strategy_name: str = "trend_following"):
     """执行每日收盘后任务"""
-    print(f"[{datetime.now()}] 开始每日任务...")
+    print(f"[{datetime.now()}] 开始每日任务 (策略: {strategy_name})...")
     try:
         init_db()
         stocks = stock_list()
@@ -25,7 +25,20 @@ def run_daily_job():
         update_daily(codes)
         print("  日K数据已更新")
 
-        results = daily_scan()
+        # Sync valuation data for value strategies
+        if strategy_name in ("value_technical", "multi_factor"):
+            try:
+                from smilex.fetcher import sync_valuation_data
+                from smilex.store import save_valuation
+                print("  同步估值数据...")
+                val_df = sync_valuation_data(codes=codes, months=6)
+                if not val_df.empty:
+                    save_valuation(val_df)
+                    print(f"  估值数据已更新 ({len(val_df)} 条)")
+            except Exception as e:
+                print(f"  估值数据同步失败: {e}")
+
+        results = daily_scan(strategy_name=strategy_name)
         print(f"  选股扫描完成，推荐 {len(results)} 只")
 
         if not results.empty:
@@ -74,6 +87,7 @@ def load_config() -> dict:
         "enabled": False,
         "hour": 15,
         "minute": 30,
+        "strategy_name": "trend_following",
         "news_sync_enabled": False,
         "news_sync_interval": 30,
         "market_sync_enabled": False,
@@ -87,21 +101,22 @@ def save_config(cfg: dict):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 
-def start_scheduler(st_state, hour: int, minute: int):
+def start_scheduler(st_state, hour: int, minute: int, strategy_name: str = "trend_following"):
     scheduler = st_state.get("_scheduler")
     if scheduler and scheduler.running:
         scheduler.shutdown(wait=False)
 
+    cfg = load_config()
     scheduler = BackgroundScheduler()
     scheduler.add_job(run_daily_job, "cron", hour=hour, minute=minute,
-                      id="daily_scan", replace_existing=True)
+                      id="daily_scan", replace_existing=True,
+                      kwargs={"strategy_name": strategy_name})
 
     if cfg.get("market_sync_enabled"):
         interval = cfg.get("market_sync_interval", 60)
         scheduler.add_job(sync_market_overview, "interval", seconds=interval,
                           id="market_sync", replace_existing=True)
 
-    cfg = load_config()
     if cfg.get("news_sync_enabled"):
         from smilex.news_sync import sync_all_news
         interval = cfg.get("news_sync_interval", 30)
@@ -110,7 +125,7 @@ def start_scheduler(st_state, hour: int, minute: int):
 
     scheduler.start()
     st_state["_scheduler"] = scheduler
-    cfg.update({"enabled": True, "hour": hour, "minute": minute})
+    cfg.update({"enabled": True, "hour": hour, "minute": minute, "strategy_name": strategy_name})
     save_config(cfg)
 
 

@@ -42,8 +42,18 @@ def init_db():
             total INTEGER, up_count INTEGER, down_count INTEGER, flat_count INTEGER,
             limit_up INTEGER, limit_down INTEGER
         );
+        CREATE TABLE IF NOT EXISTS stock_valuation (
+            code TEXT,
+            date TEXT,
+            pe REAL,
+            pb REAL,
+            roe REAL,
+            total_mv REAL,
+            PRIMARY KEY (code, date)
+        );
         CREATE INDEX IF NOT EXISTS idx_news_source ON news(source);
         CREATE INDEX IF NOT EXISTS idx_news_publish ON news(publish_time);
+        CREATE INDEX IF NOT EXISTS idx_valuation_code ON stock_valuation(code);
     """)
     conn.commit()
     conn.close()
@@ -223,3 +233,58 @@ def sync_index_data(codes: list[str] | None = None):
                 save_index(df)
         except Exception as e:
             print(f"同步指数 {code} 失败: {e}")
+
+
+def save_valuation(df: pd.DataFrame):
+    """批量写入估值数据（自动去重）"""
+    if df.empty:
+        return
+    conn = _conn()
+    cols = ["code", "date", "pe", "pb", "roe", "total_mv"]
+    save_df = df[[c for c in cols if c in df.columns]].copy()
+    save_df["date"] = save_df["date"].astype(str)
+    save_df.to_sql("_tmp_val", conn, if_exists="replace", index=False)
+    conn.execute("INSERT OR REPLACE INTO stock_valuation SELECT * FROM _tmp_val")
+    conn.execute("DROP TABLE _tmp_val")
+    conn.commit()
+    conn.close()
+
+
+def query_valuation(code: str, date: str = "") -> pd.DataFrame:
+    """查询个股估值数据"""
+    conn = _conn()
+    sql = "SELECT * FROM stock_valuation WHERE code = ?"
+    params: list = [code]
+    if date:
+        sql += " AND date >= ?"
+        params.append(date)
+    sql += " ORDER BY date DESC"
+    df = pd.read_sql(sql, conn, params=params)
+    conn.close()
+    return df
+
+
+def query_latest_valuation(codes: list[str] | None = None) -> pd.DataFrame:
+    """查询最新估值数据（每只股票最近一条）"""
+    conn = _conn()
+    if codes:
+        placeholders = ",".join(["?"] * len(codes))
+        sql = f"""
+            SELECT v.* FROM stock_valuation v
+            INNER JOIN (
+                SELECT code, MAX(date) as max_date FROM stock_valuation
+                WHERE code IN ({placeholders})
+                GROUP BY code
+            ) latest ON v.code = latest.code AND v.date = latest.max_date
+        """
+        df = pd.read_sql(sql, conn, params=codes)
+    else:
+        sql = """
+            SELECT v.* FROM stock_valuation v
+            INNER JOIN (
+                SELECT code, MAX(date) as max_date FROM stock_valuation GROUP BY code
+            ) latest ON v.code = latest.code AND v.date = latest.max_date
+        """
+        df = pd.read_sql(sql, conn)
+    conn.close()
+    return df

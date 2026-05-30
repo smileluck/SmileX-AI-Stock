@@ -1,11 +1,21 @@
 import streamlit as st
 import plotly.graph_objects as go
+from dataclasses import fields as dataclass_fields
 
 from smilex.fetcher import daily_history
 from smilex.backtest import run as run_backtest
+from smilex.strategies import list_strategies, get_strategy
 
 st.set_page_config(page_title="策略回测", layout="wide")
 st.header("策略回测")
+
+strategies = list_strategies()
+strategy_options = {s["display_name"]: s["name"] for s in strategies}
+selected_display = st.selectbox("选择回测策略", options=list(strategy_options.keys()))
+strategy_name = strategy_options[selected_display]
+
+strategy = get_strategy(strategy_name)
+st.caption(f"{strategy.metadata.description}")
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -15,21 +25,29 @@ with col2:
 with col3:
     cash = st.number_input("初始资金", value=100000, step=10000)
 
-col1, col2 = st.columns(2)
-with col1:
-    short_period = st.number_input("短周期均线", value=5, min_value=2, max_value=30)
-with col2:
-    long_period = st.number_input("长周期均线", value=20, min_value=10, max_value=120)
+st.subheader("策略参数")
+params = strategy.params
+user_params = {}
+param_cols = st.columns(min(len(dataclass_fields(params)), 4))
+for idx, f in enumerate(dataclass_fields(params)):
+    val = getattr(params, f.name)
+    with param_cols[idx % len(param_cols)]:
+        if isinstance(val, bool):
+            user_params[f.name] = st.checkbox(f.name, value=val, key=f"bt_{f.name}")
+        elif isinstance(val, int):
+            user_params[f.name] = st.number_input(f.name, value=val, key=f"bt_{f.name}")
+        elif isinstance(val, float):
+            user_params[f.name] = st.number_input(f.name, value=val, format="%.2f", key=f"bt_{f.name}")
 
 if st.button("运行回测", type="primary"):
-    with st.spinner("正在回测..."):
+    with st.spinner(f"正在使用「{selected_display}」策略回测..."):
         try:
             df = daily_history(code, start_date=start_date)
             if df.empty:
                 st.warning("未找到该股票数据")
             else:
-                result = run_backtest(df, short_period=short_period,
-                                      long_period=long_period, cash=cash)
+                result = run_backtest(df, strategy_name=strategy_name,
+                                      cash=cash, **user_params)
 
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("总收益率", f"{result['total_return']}%")

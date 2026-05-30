@@ -51,11 +51,49 @@ def volume_ratio(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def all_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    df = ma(df)
-    df = macd(df)
-    df = rsi(df)
-    df = bollinger(df)
-    df = kdj(df)
-    df = volume_ratio(df)
+def adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    result = ta.adx(df["high"], df["low"], df["close"], length=period)
+    if result is not None:
+        df["adx"] = result.iloc[:, 0]
+    return df
+
+
+def donchian(df: pd.DataFrame, entry_period: int = 20, exit_period: int = 10) -> pd.DataFrame:
+    df["donchian_upper"] = df["high"].rolling(window=entry_period).max()
+    df["donchian_lower"] = df["low"].rolling(window=exit_period).min()
+    return df
+
+
+def price_returns(df: pd.DataFrame, period: int = 20) -> pd.DataFrame:
+    df[f"return_{period}d"] = df["close"].pct_change(periods=period)
+    return df
+
+
+def volume_momentum(df: pd.DataFrame, fast: int = 5, slow: int = 20) -> pd.DataFrame:
+    df["vol_mom_fast"] = df["volume"].rolling(window=fast).mean()
+    df["vol_mom_slow"] = df["volume"].rolling(window=slow).mean()
+    df["volume_momentum"] = df["vol_mom_fast"] / df["vol_mom_slow"]
+    return df
+
+
+_INDICATOR_MAP = {
+    "ma": ma,
+    "macd": macd,
+    "rsi": rsi,
+    "bollinger": bollinger,
+    "kdj": kdj,
+    "volume_ratio": volume_ratio,
+    "adx": adx,
+    "donchian": donchian,
+    "price_returns": lambda d: price_returns(d),
+    "volume_momentum": lambda d: volume_momentum(d),
+}
+
+
+def all_indicators(df: pd.DataFrame, indicators: list[str] | None = None) -> pd.DataFrame:
+    target = indicators if indicators is not None else list(_INDICATOR_MAP.keys())
+    for name in target:
+        func = _INDICATOR_MAP.get(name)
+        if func:
+            df = func(df)
     return df

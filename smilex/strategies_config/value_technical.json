@@ -1,0 +1,16 @@
+{
+  "name": "value_technical",
+  "display_name": "价值技术混合",
+  "description": "PE/PB估值筛选 + MACD技术信号，基本面与技术面结合",
+  "category": "价值",
+  "version": "1.0",
+  "params": {
+    "pe_lower": 8.0,
+    "pe_upper": 25.0,
+    "pb_upper": 3.0,
+    "ma_period": 60,
+    "rsi_lower": 40.0,
+    "rsi_upper": 60.0,
+    "volume_ratio_min": 1.0
+  }
+}

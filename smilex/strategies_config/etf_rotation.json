@@ -1,0 +1,13 @@
+{
+  "name": "etf_rotation",
+  "display_name": "ETF动量轮动",
+  "description": "多只ETF动量排名轮动，买强卖弱",
+  "category": "轮动",
+  "version": "1.0",
+  "params": {
+    "lookback_period": 20,
+    "top_k": 3,
+    "ma_period": 60,
+    "rebalance_days": 5
+  }
+}

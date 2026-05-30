@@ -74,3 +74,61 @@ def stock_info(code: str) -> pd.DataFrame:
     """获取个股基本信息"""
     df = ak.stock_individual_info_em(symbol=code)
     return df
+
+
+def stock_valuation(code: str) -> dict:
+    """获取个股最新估值数据 (PE, PB, ROE, 总市值)"""
+    try:
+        df = ak.stock_a_indicator_lg(symbol=code)
+        if df is None or df.empty:
+            return {}
+        latest = df.iloc[-1]
+        return {
+            "code": code,
+            "date": str(latest.get("trade_date", "")),
+            "pe": float(latest.get("pe", 0)) if pd.notna(latest.get("pe")) else None,
+            "pb": float(latest.get("pb", 0)) if pd.notna(latest.get("pb")) else None,
+            "roe": float(latest.get("roe", 0)) if pd.notna(latest.get("roe")) else None,
+            "total_mv": float(latest.get("total_mv", 0)) if pd.notna(latest.get("total_mv")) else None,
+        }
+    except Exception:
+        return {}
+
+
+def sync_valuation_data(codes: list[str] | None = None, months: int = 6) -> pd.DataFrame:
+    """批量获取估值数据，返回 DataFrame 供 store.save_valuation() 使用"""
+    from datetime import datetime, timedelta
+    from smilex.store import _conn
+
+    if codes is None:
+        conn = _conn()
+        try:
+            codes = pd.read_sql("SELECT code FROM stock_info", conn)["code"].tolist()
+        finally:
+            conn.close()
+
+    start_date = (datetime.now() - timedelta(days=months * 30)).strftime("%Y%m%d")
+    all_rows: list[dict] = []
+    total = len(codes)
+
+    for i, code in enumerate(codes):
+        try:
+            df = ak.stock_a_indicator_lg(symbol=code)
+            if df is not None and not df.empty:
+                df["trade_date"] = pd.to_datetime(df["trade_date"])
+                df = df[df["trade_date"] >= start_date]
+                for _, row in df.iterrows():
+                    all_rows.append({
+                        "code": code,
+                        "date": str(row["trade_date"].date()),
+                        "pe": float(row["pe"]) if pd.notna(row.get("pe")) else None,
+                        "pb": float(row["pb"]) if pd.notna(row.get("pb")) else None,
+                        "roe": float(row["roe"]) if pd.notna(row.get("roe")) else None,
+                        "total_mv": float(row["total_mv"]) if pd.notna(row.get("total_mv")) else None,
+                    })
+        except Exception:
+            pass
+        if (i + 1) % 100 == 0:
+            print(f"[{i+1}/{total}] 估值数据同步中...")
+
+    return pd.DataFrame(all_rows) if all_rows else pd.DataFrame()
