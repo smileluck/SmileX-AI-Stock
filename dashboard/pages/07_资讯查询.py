@@ -22,6 +22,11 @@ tab_all, tab_em, tab_cls, tab_cctv = st.tabs(
 LIMIT = 100
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_news(source: str, limit: int):
+    return get_latest_news(source=source, limit=limit)
+
+
 def _render_news_cards(news_list: list[dict]):
     if not news_list:
         st.info("暂无新闻数据，请在系统设置中启动新闻同步或点击下方手动刷新")
@@ -48,26 +53,30 @@ def _render_news_cards(news_list: list[dict]):
 
 with tab_all:
     if st.button("刷新", key="refresh_all"):
+        _load_news.clear()
         st.rerun()
-    news = get_latest_news(source="", limit=LIMIT)
+    news = _load_news(source="", limit=LIMIT)
     _render_news_cards(news)
 
 with tab_em:
     if st.button("刷新", key="refresh_em"):
+        _load_news.clear()
         st.rerun()
-    news = get_latest_news(source="eastmoney_flash", limit=LIMIT)
+    news = _load_news(source="eastmoney_flash", limit=LIMIT)
     _render_news_cards(news)
 
 with tab_cls:
     if st.button("刷新", key="refresh_cls"):
+        _load_news.clear()
         st.rerun()
-    news = get_latest_news(source="cls_telegraph", limit=LIMIT)
+    news = _load_news(source="cls_telegraph", limit=LIMIT)
     _render_news_cards(news)
 
 with tab_cctv:
     if st.button("刷新", key="refresh_cctv"):
+        _load_news.clear()
         st.rerun()
-    news = get_latest_news(source="cctv_news", limit=LIMIT)
+    news = _load_news(source="cctv_news", limit=LIMIT)
     _render_news_cards(news)
 
 # ─── 原有资讯查询 ───

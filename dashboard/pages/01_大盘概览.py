@@ -4,11 +4,34 @@ import plotly.graph_objects as go
 from smilex.store import query_index, query_market_stats, query_ai_analysis, init_db
 from smilex.config import AI_INDICES
 
-init_db()
 st.set_page_config(page_title="大盘概览", layout="wide")
 st.header("大盘概览")
 
 INDICES = AI_INDICES
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_index_data(code: str, start_date: str):
+    return query_index(code, start_date=start_date)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_market_stats():
+    return query_market_stats()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_ai_analysis(analysis_type: str, limit: int):
+    return query_ai_analysis(analysis_type=analysis_type, limit=limit)
+
+
+@st.cache_resource
+def _ensure_db():
+    init_db()
+    return True
+
+
+_ensure_db()
 
 col1, col2, col3 = st.columns(3)
 
@@ -16,7 +39,7 @@ for i, (name, code) in enumerate(INDICES.items()):
     col = [col1, col2, col3][i]
     with col:
         try:
-            df = query_index(code, start_date="2025-01-01")
+            df = _load_index_data(code, start_date="2025-01-01")
             if not df.empty:
                 latest = df.iloc[-1]
                 change = ((latest["close"] - df.iloc[-2]["close"]) / df.iloc[-2]["close"] * 100
@@ -35,7 +58,7 @@ for i, (name, code) in enumerate(INDICES.items()):
 st.subheader("A股市场概况")
 
 try:
-    stats = query_market_stats()
+    stats = _load_market_stats()
     if not stats.empty:
         row = stats.iloc[0]
         c1, c2, c3, c4 = st.columns(4)
@@ -56,7 +79,7 @@ except Exception as e:
 st.divider()
 st.subheader("AI 市场评估（近3个月）")
 
-latest_eval = query_ai_analysis(analysis_type="evaluation", limit=1)
+latest_eval = _load_ai_analysis(analysis_type="evaluation", limit=1)
 if not latest_eval.empty:
     row = latest_eval.iloc[0]
     st.markdown(row["content"])
@@ -80,8 +103,7 @@ if st.button("生成3个月市场评估", key="gen_eval"):
                     content=result["evaluation"],
                     model=result.get("model", ""),
                 )
-                st.markdown(result["evaluation"])
-                st.caption(f"评估时间：{result['created_at']}  |  模型：{result['model']}")
+                _load_ai_analysis.clear()
                 st.rerun()
         except Exception as e:
             st.error(f"AI分析失败：{e}")
@@ -90,7 +112,7 @@ if st.button("生成3个月市场评估", key="gen_eval"):
 st.divider()
 st.subheader("AI 每日收盘分析")
 
-latest_daily = query_ai_analysis(analysis_type="daily_summary", limit=1)
+latest_daily = _load_ai_analysis(analysis_type="daily_summary", limit=1)
 if not latest_daily.empty:
     row = latest_daily.iloc[0]
     col_sum, col_pred = st.columns(2)

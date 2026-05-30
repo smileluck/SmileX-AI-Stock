@@ -3,9 +3,10 @@ import sqlite3
 import pandas as pd
 from smilex.config import DB_PATH, DATA_DIR
 
+_os.makedirs(DATA_DIR, exist_ok=True)
+
 
 def _conn() -> sqlite3.Connection:
-    os.makedirs(DATA_DIR, exist_ok=True)
     return sqlite3.connect(DB_PATH)
 
 

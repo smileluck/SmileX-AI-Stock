@@ -2,17 +2,28 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from smilex.store import query_daily
 from smilex.fetcher import daily_history
 from smilex.indicators import all_indicators
 
 st.set_page_config(page_title="个股分析", layout="wide")
 st.header("个股分析")
 
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_stock_data(code: str):
+    """优先从本地数据库加载，无数据时回退到 API"""
+    df = query_daily(code, start_date="20240101")
+    if df.empty:
+        df = daily_history(code, start_date="20240101")
+    return df
+
+
 code = st.text_input("输入股票代码", value="000001", max_chars=6)
 
 if code:
     try:
-        df = daily_history(code, start_date="20240101")
+        df = _load_stock_data(code)
         if df.empty:
             st.warning("未找到该股票数据")
         else:

@@ -2,12 +2,23 @@ import streamlit as st
 import plotly.graph_objects as go
 from dataclasses import fields as dataclass_fields
 
+from smilex.store import query_daily
 from smilex.fetcher import daily_history
 from smilex.backtest import run as run_backtest
 from smilex.strategies import list_strategies, get_strategy
 
 st.set_page_config(page_title="策略回测", layout="wide")
 st.header("策略回测")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_stock_data(code: str, start_date: str):
+    """优先从本地数据库加载，无数据时回退到 API"""
+    df = query_daily(code, start_date=start_date)
+    if df.empty:
+        df = daily_history(code, start_date=start_date)
+    return df
+
 
 strategies = list_strategies()
 strategy_options = {s["display_name"]: s["name"] for s in strategies}
@@ -42,7 +53,7 @@ for idx, f in enumerate(dataclass_fields(params)):
 if st.button("运行回测", type="primary"):
     with st.spinner(f"正在使用「{selected_display}」策略回测..."):
         try:
-            df = daily_history(code, start_date=start_date)
+            df = _load_stock_data(code, start_date)
             if df.empty:
                 st.warning("未找到该股票数据")
             else:
