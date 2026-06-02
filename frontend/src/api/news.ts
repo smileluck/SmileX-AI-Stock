@@ -1,5 +1,5 @@
 import client from "./client";
-import type { NewsResponse, SourceInfo, SyncResponse } from "../types";
+import type { NewsResponse, SourceInfo, SyncResponse, SyncLogResponse, ScheduleJob } from "../types";
 
 export async function fetchNews(source?: string, limit = 100): Promise<NewsResponse> {
   const params: Record<string, string | number> = { limit };
@@ -15,5 +15,15 @@ export async function fetchSources(): Promise<SourceInfo[]> {
 
 export async function triggerSync(): Promise<SyncResponse> {
   const { data } = await client.post("/news/sync");
+  return data;
+}
+
+export async function fetchSchedule(): Promise<{ jobs: ScheduleJob[] }> {
+  const { data } = await client.get("/news/schedule");
+  return data;
+}
+
+export async function fetchSyncLogs(limit = 50): Promise<SyncLogResponse> {
+  const { data } = await client.get("/news/sync/logs", { params: { limit } });
   return data;
 }

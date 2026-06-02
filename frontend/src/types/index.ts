@@ -33,6 +33,28 @@ export interface SyncResponse {
   total: number;
 }
 
+export interface SyncLogItem {
+  id: number;
+  job_id: string;
+  trigger: string;
+  results: SyncResultItem[];
+  total: number;
+  status: string;
+  duration: number;
+  created_at: string;
+}
+
+export interface SyncLogResponse {
+  items: SyncLogItem[];
+  total: number;
+}
+
+export interface ScheduleJob {
+  id: string;
+  next_run: string;
+  trigger: string;
+}
+
 export const SOURCE_COLOR_MAP: Record<string, string> = {
   eastmoney: "red",
   cls: "orange",

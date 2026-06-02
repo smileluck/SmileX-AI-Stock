@@ -1,3 +1,5 @@
+import json
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -29,8 +31,10 @@ def save_news(df: pd.DataFrame):
     return count
 
 
-def sync_all() -> list[dict]:
+def sync_all(trigger: str = "manual") -> list[dict]:
+    start = time.time()
     results = []
+    has_error = False
     for name, cls in SOURCE_REGISTRY.items():
         try:
             source = cls()
@@ -38,9 +42,44 @@ def sync_all() -> list[dict]:
             count = save_news(df)
             results.append({"source": name, "label": SOURCE_LABELS.get(name, name), "count": count, "status": "ok"})
         except Exception as e:
+            has_error = True
             results.append({"source": name, "label": SOURCE_LABELS.get(name, name), "count": 0, "status": f"error: {e}"})
     cleanup_old_news(days=7)
+    total = sum(r["count"] for r in results)
+    duration = round(time.time() - start, 2)
+    _save_log(job_id="news_sync", trigger=trigger, results=results, total=total, status="error" if has_error else "ok", duration=duration)
     return results
+
+
+def _save_log(job_id: str, trigger: str, results: list[dict], total: int, status: str, duration: float):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO sync_log (job_id, trigger, results, total, status, duration, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (job_id, trigger, json.dumps(results, ensure_ascii=False), total, status, duration, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_sync_logs(limit: int = 50) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM sync_log ORDER BY created_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [
+        {
+            "id": row["id"],
+            "job_id": row["job_id"],
+            "trigger": row["trigger"],
+            "results": json.loads(row["results"]) if row["results"] else [],
+            "total": row["total"],
+            "status": row["status"],
+            "duration": row["duration"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
 
 
 def get_news(source: str = "", limit: int = 100) -> list[dict]:

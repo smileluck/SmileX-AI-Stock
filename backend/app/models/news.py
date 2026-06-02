@@ -34,3 +34,19 @@ class SyncResponse(BaseModel):
 class NewsResponse(BaseModel):
     items: list[NewsItem]
     total: int
+
+
+class SyncLogItem(BaseModel):
+    id: int
+    job_id: str
+    trigger: str
+    results: list[dict]
+    total: int
+    status: str
+    duration: float
+    created_at: str
+
+
+class SyncLogResponse(BaseModel):
+    items: list[SyncLogItem]
+    total: int

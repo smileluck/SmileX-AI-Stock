@@ -14,6 +14,19 @@ CREATE TABLE IF NOT EXISTS news (
 );
 CREATE INDEX IF NOT EXISTS idx_news_source ON news(source);
 CREATE INDEX IF NOT EXISTS idx_news_publish_time ON news(publish_time);
+
+CREATE TABLE IF NOT EXISTS sync_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id     TEXT NOT NULL,
+    trigger    TEXT NOT NULL DEFAULT 'manual',
+    results    TEXT NOT NULL DEFAULT '[]',
+    total      INTEGER NOT NULL DEFAULT 0,
+    status     TEXT NOT NULL DEFAULT 'ok',
+    duration   REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sync_log_job ON sync_log(job_id);
+CREATE INDEX IF NOT EXISTS idx_sync_log_created ON sync_log(created_at);
 """
 
 
