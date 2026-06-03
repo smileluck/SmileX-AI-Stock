@@ -6,10 +6,12 @@ import { fetchNews, fetchSources, triggerSync } from "../api/news";
 import type { NewsItem, SourceInfo } from "../types";
 import { SOURCE_GROUPS } from "../types";
 
-// Build a set of source names that are non-first children in a group
+// Build a set of all children in groups (group key source is shown as group tab)
 const GROUPED_CHILD_NAMES = new Set<string>();
-for (const group of Object.values(SOURCE_GROUPS)) {
-  group.children.slice(1).forEach((c) => GROUPED_CHILD_NAMES.add(c.name));
+for (const [key, group] of Object.entries(SOURCE_GROUPS)) {
+  group.children.forEach((c) => {
+    if (c.name !== key) GROUPED_CHILD_NAMES.add(c.name);
+  });
 }
 
 export default function NewsPage() {
