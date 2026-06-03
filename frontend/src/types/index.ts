@@ -56,6 +56,19 @@ export interface ScheduleJob {
   trigger: string;
 }
 
+export const SOURCE_GROUPS: Record<string, {
+  label: string;
+  children: { name: string; label: string }[];
+}> = {
+  eastmoney: {
+    label: "东方财富",
+    children: [
+      { name: "eastmoney", label: "财经" },
+      { name: "eastmoney_global", label: "7×24全球" },
+    ],
+  },
+};
+
 export const SOURCE_COLOR_MAP: Record<string, string> = {
   eastmoney: "red",
   eastmoney_global: "magenta",

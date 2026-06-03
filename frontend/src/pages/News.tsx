@@ -4,13 +4,27 @@ import { SyncOutlined } from "@ant-design/icons";
 import NewsCard from "../components/News/NewsCard";
 import { fetchNews, fetchSources, triggerSync } from "../api/news";
 import type { NewsItem, SourceInfo } from "../types";
+import { SOURCE_GROUPS } from "../types";
 
 export default function NewsPage() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [activeSource, setActiveSource] = useState("");
+  const [activeSubSource, setActiveSubSource] = useState(
+    SOURCE_GROUPS["eastmoney"]?.children[0]?.name ?? ""
+  );
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  // Build a set of source names that are non-first children in a group
+  const groupedChildNames = new Set<string>();
+  for (const group of Object.values(SOURCE_GROUPS)) {
+    group.children.slice(1).forEach((c) => groupedChildNames.add(c.name));
+  }
+
+  const effectiveSource = SOURCE_GROUPS[activeSource]
+    ? activeSubSource
+    : activeSource;
 
   const loadSources = useCallback(async () => {
     const data = await fetchSources();
@@ -20,12 +34,12 @@ export default function NewsPage() {
   const loadNews = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchNews(activeSource, 200);
+      const data = await fetchNews(effectiveSource, 200);
       setNews(data.items);
     } finally {
       setLoading(false);
     }
-  }, [activeSource]);
+  }, [effectiveSource]);
 
   useEffect(() => {
     loadSources();
@@ -36,6 +50,14 @@ export default function NewsPage() {
     const timer = setInterval(loadNews, 60_000);
     return () => clearInterval(timer);
   }, [loadNews]);
+
+  // Reset sub-tab when main tab changes
+  useEffect(() => {
+    const group = SOURCE_GROUPS[activeSource];
+    if (group) {
+      setActiveSubSource(group.children[0].name);
+    }
+  }, [activeSource]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -58,11 +80,38 @@ export default function NewsPage() {
       key: "",
       label: <Badge count={totalCount} size="small" offset={[6, -2]}>全部</Badge>,
     },
-    ...sources.map((s) => ({
-      key: s.name,
-      label: <Badge count={s.today_count} size="small" offset={[6, -2]}>{s.label}</Badge>,
-    })),
+    ...sources
+      .map((s) => {
+        if (groupedChildNames.has(s.name)) return null;
+        const group = SOURCE_GROUPS[s.name];
+        if (group) {
+          const groupCount = group.children.reduce((sum, c) => {
+            const found = sources.find((src) => src.name === c.name);
+            return sum + (found?.today_count ?? 0);
+          }, 0);
+          return {
+            key: s.name,
+            label: <Badge count={groupCount} size="small" offset={[6, -2]}>{group.label}</Badge>,
+          };
+        }
+        return {
+          key: s.name,
+          label: <Badge count={s.today_count} size="small" offset={[6, -2]}>{s.label}</Badge>,
+        };
+      })
+      .filter(Boolean),
   ];
+
+  const activeGroup = SOURCE_GROUPS[activeSource];
+  const subItems = activeGroup
+    ? activeGroup.children.map((c) => {
+        const found = sources.find((s) => s.name === c.name);
+        return {
+          key: c.name,
+          label: <Badge count={found?.today_count ?? 0} size="small" offset={[6, -2]}>{c.label}</Badge>,
+        };
+      })
+    : [];
 
   return (
     <div>
@@ -78,6 +127,16 @@ export default function NewsPage() {
           同步新闻
         </Button>
       </div>
+
+      {activeGroup && (
+        <Tabs
+          activeKey={activeSubSource}
+          onChange={setActiveSubSource}
+          items={subItems}
+          size="small"
+          style={{ marginBottom: 8 }}
+        />
+      )}
 
       <Spin spinning={loading}>
         {news.length === 0 ? (

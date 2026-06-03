@@ -10,16 +10,14 @@ from sources.base import BaseSource
 class EastMoneyGlobalSource(BaseSource):
     source_name = "eastmoney_global"
 
-    def fetch(self, page_size: int = 30) -> pd.DataFrame:
-        url = "https://np-listapi.eastmoney.com/comm/web/getNewsByColumns"
+    def fetch(self, page_size: int = 50) -> pd.DataFrame:
+        url = "https://np-weblist.eastmoney.com/comm/web/getFastNewsList"
         params = {
             "client": "web",
-            "biz": "web_news_col",
-            "column": "351",
-            "order": "1",
-            "needInteractData": "0",
-            "page_index": "1",
-            "page_size": str(page_size),
+            "biz": "web_724",
+            "fastColumn": "102",
+            "sortEnd": "",
+            "pageSize": str(page_size),
             "req_trace": "smilex",
         }
         headers = {
@@ -28,20 +26,21 @@ class EastMoneyGlobalSource(BaseSource):
         }
         try:
             resp = requests.get(url, params=params, headers=headers, timeout=10)
-            items = resp.json().get("data", {}).get("list", [])
+            items = resp.json().get("data", {}).get("fastNewsList", [])
             if not items:
                 return pd.DataFrame()
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             rows = []
             for item in items:
+                code = item.get("code", "")
                 rows.append({
                     "source": self.source_name,
                     "title": item.get("title", ""),
                     "content": item.get("summary", ""),
-                    "url": item.get("url", item.get("uniqueUrl", "")),
+                    "url": f"https://finance.eastmoney.com/a/{code}.html" if code else "",
                     "publish_time": item.get("showTime", ""),
                     "fetch_time": now,
-                    "extra": json.dumps({"mediaName": item.get("mediaName", "")}, ensure_ascii=False),
+                    "extra": json.dumps({"stockList": item.get("stockList", [])}, ensure_ascii=False),
                 })
             return pd.DataFrame(rows)
         except Exception as e:
