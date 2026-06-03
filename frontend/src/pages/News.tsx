@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Select, Button, Space, Spin, Empty, message } from "antd";
+import { Tabs, Button, Space, Spin, Empty, Badge, message } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
 import NewsCard from "../components/News/NewsCard";
 import { fetchNews, fetchSources, triggerSync } from "../api/news";
@@ -8,7 +8,7 @@ import type { NewsItem, SourceInfo } from "../types";
 export default function NewsPage() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
-  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [activeSource, setActiveSource] = useState("");
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -20,17 +20,12 @@ export default function NewsPage() {
   const loadNews = useCallback(async () => {
     setLoading(true);
     try {
-      const source = selectedSources.length === 1 ? selectedSources[0] : "";
-      const data = await fetchNews(source, 200);
-      setNews(
-        selectedSources.length > 1
-          ? data.items.filter((i) => selectedSources.includes(i.source))
-          : data.items,
-      );
+      const data = await fetchNews(activeSource, 200);
+      setNews(data.items);
     } finally {
       setLoading(false);
     }
-  }, [selectedSources]);
+  }, [activeSource]);
 
   useEffect(() => {
     loadSources();
@@ -38,6 +33,8 @@ export default function NewsPage() {
 
   useEffect(() => {
     loadNews();
+    const timer = setInterval(loadNews, 60_000);
+    return () => clearInterval(timer);
   }, [loadNews]);
 
   const handleSync = async () => {
@@ -54,22 +51,33 @@ export default function NewsPage() {
     }
   };
 
+  const totalCount = sources.reduce((sum, s) => sum + s.today_count, 0);
+
+  const items = [
+    {
+      key: "",
+      label: <Badge count={totalCount} size="small" offset={[6, -2]}>全部</Badge>,
+    },
+    ...sources.map((s) => ({
+      key: s.name,
+      label: <Badge count={s.today_count} size="small" offset={[6, -2]}>{s.label}</Badge>,
+    })),
+  ];
+
   return (
     <div>
-      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }}>
-        <Select
-          mode="multiple"
-          placeholder="按来源筛选"
-          value={selectedSources}
-          onChange={setSelectedSources}
-          style={{ minWidth: 300 }}
-          options={sources.map((s) => ({ label: `${s.label} (${s.count})`, value: s.name }))}
-          allowClear
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <Tabs
+          activeKey={activeSource}
+          onChange={setActiveSource}
+          items={items}
+          style={{ flex: 1, marginBottom: 0 }}
+          size="small"
         />
         <Button icon={<SyncOutlined spin={syncing} />} onClick={handleSync} loading={syncing}>
           同步新闻
         </Button>
-      </Space>
+      </div>
 
       <Spin spinning={loading}>
         {news.length === 0 ? (

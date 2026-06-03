@@ -16,6 +16,7 @@ class SourceInfo(BaseModel):
     name: str
     label: str
     count: int
+    today_count: int
     last_fetch: str | None
 
 

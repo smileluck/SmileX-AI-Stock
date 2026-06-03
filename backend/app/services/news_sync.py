@@ -113,16 +113,22 @@ def get_news(source: str = "", limit: int = 100) -> list[dict]:
 
 def get_source_stats() -> list[dict]:
     conn = get_connection()
+    today = datetime.now().strftime("%Y-%m-%d")
     stats = []
     for name, label in SOURCE_LABELS.items():
         row = conn.execute(
             "SELECT COUNT(*) as cnt, MAX(fetch_time) as last_fetch FROM news WHERE source = ?",
             (name,),
         ).fetchone()
+        today_row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM news WHERE source = ? AND fetch_time >= ?",
+            (name, today),
+        ).fetchone()
         stats.append({
             "name": name,
             "label": label,
             "count": row["cnt"] if row else 0,
+            "today_count": today_row["cnt"] if today_row else 0,
             "last_fetch": row["last_fetch"] if row else None,
         })
     conn.close()

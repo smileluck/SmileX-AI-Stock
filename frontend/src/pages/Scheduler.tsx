@@ -24,6 +24,8 @@ export default function SchedulerPage() {
 
   useEffect(() => {
     load();
+    const timer = setInterval(load, 60_000);
+    return () => clearInterval(timer);
   }, [load]);
 
   const handleSync = async () => {

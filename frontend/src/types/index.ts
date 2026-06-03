@@ -13,6 +13,7 @@ export interface SourceInfo {
   name: string;
   label: string;
   count: number;
+  today_count: number;
   last_fetch: string | null;
 }
 
