@@ -1,5 +1,6 @@
 from sources.base import BaseSource
 from sources.eastmoney import EastMoneySource
+from sources.eastmoney_global import EastMoneyGlobalSource
 from sources.cls import ClsSource
 from sources.tonghuashun import TongHuaShunSource
 from sources.sina import SinaSource
@@ -11,6 +12,7 @@ from sources.jrj import JrjSource
 
 SOURCE_LABELS: dict[str, str] = {
     "eastmoney": "东方财富",
+    "eastmoney_global": "7×24全球",
     "cls": "财联社",
     "tonghuashun": "同花顺",
     "sina": "新浪财经",
@@ -23,6 +25,7 @@ SOURCE_LABELS: dict[str, str] = {
 
 SOURCE_REGISTRY: dict[str, type[BaseSource]] = {
     "eastmoney": EastMoneySource,
+    "eastmoney_global": EastMoneyGlobalSource,
     "cls": ClsSource,
     "tonghuashun": TongHuaShunSource,
     "sina": SinaSource,

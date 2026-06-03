@@ -58,6 +58,7 @@ export interface ScheduleJob {
 
 export const SOURCE_COLOR_MAP: Record<string, string> = {
   eastmoney: "red",
+  eastmoney_global: "magenta",
   cls: "orange",
   tonghuashun: "blue",
   sina: "purple",
