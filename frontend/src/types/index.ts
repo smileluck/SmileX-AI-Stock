@@ -67,12 +67,29 @@ export const SOURCE_GROUPS: Record<string, {
       { name: "eastmoney_global", label: "7×24全球" },
     ],
   },
+  cls: {
+    label: "财联社",
+    children: [
+      { name: "cls_red", label: "加红" },
+      { name: "cls_announcement", label: "公司" },
+      { name: "cls_watch", label: "看盘" },
+      { name: "cls_hk_us", label: "港美股" },
+      { name: "cls_fund", label: "基金" },
+      { name: "cls_remind", label: "提醒" },
+    ],
+  },
 };
 
 export const SOURCE_COLOR_MAP: Record<string, string> = {
   eastmoney: "red",
   eastmoney_global: "magenta",
   cls: "orange",
+  cls_red: "orange",
+  cls_announcement: "orange",
+  cls_watch: "orange",
+  cls_hk_us: "orange",
+  cls_fund: "orange",
+  cls_remind: "orange",
   tonghuashun: "blue",
   sina: "purple",
   wallstreetcn: "cyan",
