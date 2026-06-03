@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Menu } from "antd";
 import {
   DashboardOutlined,
@@ -9,11 +10,20 @@ import {
   BarChartOutlined,
   ThunderboltOutlined,
   FieldTimeOutlined,
+  FundOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 
 const menuItems = [
-  { key: "/", icon: <DashboardOutlined />, label: "大盘概览" },
+  {
+    key: "/market",
+    icon: <FundOutlined />,
+    label: "大盘",
+    children: [
+      { key: "/market", icon: <DashboardOutlined />, label: "大盘概览" },
+      { key: "/market/history", icon: <HistoryOutlined />, label: "历史大盘" },
+    ],
+  },
   { key: "/news", icon: <ReadOutlined />, label: "资讯聚合" },
   { key: "/scheduler", icon: <FieldTimeOutlined />, label: "定时任务" },
   { key: "/stock", icon: <StockOutlined />, label: "个股分析" },
@@ -27,11 +37,16 @@ const menuItems = [
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [openKeys, setOpenKeys] = useState<string[]>(
+    location.pathname.startsWith("/market") ? ["/market"] : [],
+  );
 
   return (
     <Menu
       mode="inline"
       selectedKeys={[location.pathname]}
+      openKeys={openKeys}
+      onOpenChange={setOpenKeys}
       items={menuItems}
       onClick={({ key }) => navigate(key)}
       style={{ height: "100%", borderRight: 0 }}

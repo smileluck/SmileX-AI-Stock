@@ -21,3 +21,23 @@ class MarketOverviewResponse(BaseModel):
     cn_main: list[IndexItem]
     international: list[IndexItem]
     fetch_time: str
+
+
+class IndexDailyItem(BaseModel):
+    date: str
+    open: float
+    close: float
+    high: float
+    low: float
+    volume: float
+
+
+class IndexHistoryData(BaseModel):
+    code: str
+    name: str
+    records: list[IndexDailyItem]
+
+
+class MarketHistoryResponse(BaseModel):
+    indices: list[IndexHistoryData]
+    fetch_time: str

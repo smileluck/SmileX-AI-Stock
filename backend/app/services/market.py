@@ -21,6 +21,17 @@ CN_INDEX_CODES = {
     "sh000852",  # 中证1000
 }
 
+CN_INDEX_NAMES = {
+    "sh000001": "上证指数",
+    "sz399001": "深证成指",
+    "sz399006": "创业板指",
+    "sh000688": "科创50",
+    "sh000300": "沪深300",
+    "sh000016": "上证50",
+    "sh000905": "中证500",
+    "sh000852": "中证1000",
+}
+
 # East Money secids for global indices
 GLOBAL_INDEX_SECIDS = [
     "100.DJIA",   # 道琼斯
@@ -136,5 +147,25 @@ def get_market_overview() -> dict:
     return {
         "cn_main": _get_cn_indices(),
         "international": _get_global_indices(),
+        "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def get_market_history(days: int = 30) -> dict:
+    cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
+    cutoff_str = cutoff.strftime("%Y-%m-%d")
+    results = []
+    for code, name in CN_INDEX_NAMES.items():
+        try:
+            df = ak.stock_zh_index_daily(symbol=code)
+            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+            df = df[df["date"] >= cutoff_str].sort_values("date")
+            records = df.to_dict("records")
+            if records:
+                results.append({"code": code, "name": name, "records": records})
+        except Exception:
+            logger.warning("Failed to fetch history for %s", code, exc_info=True)
+    return {
+        "indices": results,
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }

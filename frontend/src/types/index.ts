@@ -70,6 +70,7 @@ export const SOURCE_GROUPS: Record<string, {
   cls: {
     label: "财联社",
     children: [
+      { name: "cls", label: "综合" },
       { name: "cls_red", label: "加红" },
       { name: "cls_announcement", label: "公司" },
       { name: "cls_watch", label: "看盘" },
@@ -99,6 +100,26 @@ export interface IndexItem {
 export interface MarketOverviewResponse {
   cn_main: IndexItem[];
   international: IndexItem[];
+  fetch_time: string;
+}
+
+export interface IndexDailyItem {
+  date: string;
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+  volume: number;
+}
+
+export interface IndexHistoryData {
+  code: string;
+  name: string;
+  records: IndexDailyItem[];
+}
+
+export interface MarketHistoryResponse {
+  indices: IndexHistoryData[];
   fetch_time: string;
 }
 
