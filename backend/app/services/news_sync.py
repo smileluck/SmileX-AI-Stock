@@ -1,11 +1,69 @@
 import json
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 
 from app.database import get_connection
 from app.services.news_fetcher import SOURCE_REGISTRY, SOURCE_LABELS
+
+_STD_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _normalize_publish_time(publish_time: str, fetch_time: str) -> str:
+    s = (publish_time or "").strip()
+    if not s:
+        return ""
+
+    # Relative times: "刚刚", "X分钟前", "X小时前", "昨天 HH:MM"
+    if s == "刚刚":
+        return fetch_time
+    m = re.match(r"(\d+)\s*分钟前", s)
+    if m:
+        dt = datetime.strptime(fetch_time, _STD_FMT) - timedelta(minutes=int(m.group(1)))
+        return dt.strftime(_STD_FMT)
+    m = re.match(r"(\d+)\s*小时前", s)
+    if m:
+        dt = datetime.strptime(fetch_time, _STD_FMT) - timedelta(hours=int(m.group(1)))
+        return dt.strftime(_STD_FMT)
+    m = re.match(r"昨天\s*(.*)", s)
+    if m:
+        fetch_dt = datetime.strptime(fetch_time, _STD_FMT)
+        for fmt in ("%H:%M", "%H:%M:%S"):
+            try:
+                t = datetime.strptime(m.group(1).strip(), fmt)
+                return (fetch_dt.replace(hour=t.hour, minute=t.minute, second=0) - timedelta(days=1)).strftime(_STD_FMT)
+            except ValueError:
+                continue
+
+    # "MM月DD日 HH:MM"
+    m = re.match(r"(\d+)月(\d+)日\s*(\d+):(\d+)", s)
+    if m:
+        fetch_dt = datetime.strptime(fetch_time, _STD_FMT)
+        try:
+            dt = datetime(fetch_dt.year, int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)))
+            return dt.strftime(_STD_FMT)
+        except ValueError:
+            pass
+
+    # Standard datetime formats
+    for fmt in (_STD_FMT, "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s, fmt).strftime(_STD_FMT)
+        except ValueError:
+            continue
+
+    # "MM-DD HH:MM" without year — use current year
+    for fmt in ("%m-%d %H:%M", "%m-%d %H:%M:%S"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            fetch_dt = datetime.strptime(fetch_time, _STD_FMT)
+            return dt.replace(year=fetch_dt.year).strftime(_STD_FMT)
+        except ValueError:
+            continue
+
+    return ""
 
 
 def save_news(df: pd.DataFrame):
@@ -15,12 +73,13 @@ def save_news(df: pd.DataFrame):
     count = 0
     for _, row in df.iterrows():
         try:
+            pub = _normalize_publish_time(str(row.get("publish_time", "")), str(row.get("fetch_time", "")))
             conn.execute(
                 "INSERT OR IGNORE INTO news (source, title, content, url, publish_time, fetch_time, extra) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     row["source"], row["title"], row["content"], row["url"],
-                    row["publish_time"], row["fetch_time"], row["extra"],
+                    pub, row["fetch_time"], row["extra"],
                 ),
             )
             count += 1
@@ -82,33 +141,48 @@ def get_sync_logs(limit: int = 50) -> list[dict]:
     ]
 
 
+def _sort_key(row: dict) -> str:
+    pub = (row.get("publish_time") or "").strip()
+    if pub:
+        norm = _normalize_publish_time(pub, row["fetch_time"] or "")
+        if norm:
+            return norm
+    return row["fetch_time"] or ""
+
+
 def get_news(source: str = "", limit: int = 100) -> list[dict]:
     conn = get_connection()
     if source:
         rows = conn.execute(
-            "SELECT * FROM news WHERE source = ? ORDER BY publish_time DESC LIMIT ?",
-            (source, limit),
+            "SELECT * FROM news WHERE source = ?",
+            (source,),
         ).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM news ORDER BY publish_time DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM news").fetchall()
     conn.close()
-    result = []
+
+    raw = []
     for row in rows:
-        import json
-        result.append({
-            "id": row["id"],
-            "source": row["source"],
-            "title": row["title"],
-            "content": row["content"],
-            "url": row["url"],
-            "publish_time": row["publish_time"],
-            "fetch_time": row["fetch_time"],
-            "extra": json.loads(row["extra"]) if row["extra"] else {},
-        })
-    return result
+        pub_raw = row["publish_time"] or ""
+        norm = _normalize_publish_time(pub_raw, row["fetch_time"] or "")
+        raw.append({**dict(row), "publish_time": norm or pub_raw})
+
+    raw.sort(key=_sort_key, reverse=True)
+
+    import json as _json
+    return [
+        {
+            "id": r["id"],
+            "source": r["source"],
+            "title": r["title"],
+            "content": r["content"],
+            "url": r["url"],
+            "publish_time": r["publish_time"],
+            "fetch_time": r["fetch_time"],
+            "extra": _json.loads(r["extra"]) if r["extra"] else {},
+        }
+        for r in raw[:limit]
+    ]
 
 
 def get_source_stats() -> list[dict]:
