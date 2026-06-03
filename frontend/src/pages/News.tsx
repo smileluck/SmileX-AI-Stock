@@ -1,10 +1,16 @@
-import { useState, useEffect, useCallback } from "react";
-import { Tabs, Button, Space, Spin, Empty, Badge, message } from "antd";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Tabs, Button, Spin, Empty, Badge, message } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
 import NewsCard from "../components/News/NewsCard";
 import { fetchNews, fetchSources, triggerSync } from "../api/news";
 import type { NewsItem, SourceInfo } from "../types";
 import { SOURCE_GROUPS } from "../types";
+
+// Build a set of source names that are non-first children in a group
+const GROUPED_CHILD_NAMES = new Set<string>();
+for (const group of Object.values(SOURCE_GROUPS)) {
+  group.children.slice(1).forEach((c) => GROUPED_CHILD_NAMES.add(c.name));
+}
 
 export default function NewsPage() {
   const [news, setNews] = useState<NewsItem[]>([]);
@@ -14,38 +20,38 @@ export default function NewsPage() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
-  // Build a set of source names that are non-first children in a group
-  const groupedChildNames = new Set<string>();
-  for (const group of Object.values(SOURCE_GROUPS)) {
-    group.children.slice(1).forEach((c) => groupedChildNames.add(c.name));
-  }
+  const activeGroup = SOURCE_GROUPS[activeSource];
+  const groupChildNames = useMemo(
+    () => activeGroup?.children.map((c) => c.name) ?? [],
+    [activeGroup]
+  );
 
-  const effectiveSource = SOURCE_GROUPS[activeSource]
+  const effectiveSource = activeGroup
     ? activeSubSource || ""
     : activeSource;
-
-  const groupChildNames = SOURCE_GROUPS[activeSource]
-    ? SOURCE_GROUPS[activeSource].children.map((c) => c.name)
-    : [];
 
   const loadSources = useCallback(async () => {
     const data = await fetchSources();
     setSources(data);
   }, []);
 
+  const fetchRef = useRef({ effectiveSource, activeGroup, activeSubSource, groupChildNames });
+  fetchRef.current = { effectiveSource, activeGroup, activeSubSource, groupChildNames };
+
   const loadNews = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchNews(effectiveSource, 200);
+      const { effectiveSource: es, activeGroup: ag, activeSubSource: asub, groupChildNames: gcn } = fetchRef.current;
+      const data = await fetchNews(es, 200);
       let items = data.items;
-      if (SOURCE_GROUPS[activeSource] && !activeSubSource) {
-        items = items.filter((i) => groupChildNames.includes(i.source));
+      if (ag && !asub) {
+        items = items.filter((i) => gcn.includes(i.source));
       }
       setNews(items);
     } finally {
       setLoading(false);
     }
-  }, [effectiveSource, activeSource, activeSubSource, groupChildNames]);
+  }, []);
 
   useEffect(() => {
     loadSources();
@@ -55,14 +61,14 @@ export default function NewsPage() {
     loadNews();
     const timer = setInterval(loadNews, 60_000);
     return () => clearInterval(timer);
-  }, [loadNews]);
+  }, [loadNews, effectiveSource, activeSubSource]);
 
-  // Reset sub-tab to "全部" when main tab changes
-  useEffect(() => {
-    if (SOURCE_GROUPS[activeSource]) {
+  const handleTabChange = useCallback((key: string) => {
+    setActiveSource(key);
+    if (SOURCE_GROUPS[key]) {
       setActiveSubSource("");
     }
-  }, [activeSource]);
+  }, []);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -87,7 +93,7 @@ export default function NewsPage() {
     },
     ...sources
       .map((s) => {
-        if (groupedChildNames.has(s.name)) return null;
+        if (GROUPED_CHILD_NAMES.has(s.name)) return null;
         const group = SOURCE_GROUPS[s.name];
         if (group) {
           const groupCount = group.children.reduce((sum, c) => {
@@ -107,7 +113,6 @@ export default function NewsPage() {
       .filter(Boolean),
   ];
 
-  const activeGroup = SOURCE_GROUPS[activeSource];
   const subItems = activeGroup
     ? [
         {
@@ -132,7 +137,7 @@ export default function NewsPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <Tabs
           activeKey={activeSource}
-          onChange={setActiveSource}
+          onChange={handleTabChange}
           items={items}
           style={{ flex: 1, marginBottom: 0 }}
           size="small"
