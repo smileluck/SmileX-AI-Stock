@@ -10,9 +10,7 @@ export default function NewsPage() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [activeSource, setActiveSource] = useState("");
-  const [activeSubSource, setActiveSubSource] = useState(
-    SOURCE_GROUPS["eastmoney"]?.children[0]?.name ?? ""
-  );
+  const [activeSubSource, setActiveSubSource] = useState("");
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -23,8 +21,12 @@ export default function NewsPage() {
   }
 
   const effectiveSource = SOURCE_GROUPS[activeSource]
-    ? activeSubSource
+    ? activeSubSource || ""
     : activeSource;
+
+  const groupChildNames = SOURCE_GROUPS[activeSource]
+    ? SOURCE_GROUPS[activeSource].children.map((c) => c.name)
+    : [];
 
   const loadSources = useCallback(async () => {
     const data = await fetchSources();
@@ -35,11 +37,15 @@ export default function NewsPage() {
     setLoading(true);
     try {
       const data = await fetchNews(effectiveSource, 200);
-      setNews(data.items);
+      let items = data.items;
+      if (SOURCE_GROUPS[activeSource] && !activeSubSource) {
+        items = items.filter((i) => groupChildNames.includes(i.source));
+      }
+      setNews(items);
     } finally {
       setLoading(false);
     }
-  }, [effectiveSource]);
+  }, [effectiveSource, activeSource, activeSubSource, groupChildNames]);
 
   useEffect(() => {
     loadSources();
@@ -51,11 +57,10 @@ export default function NewsPage() {
     return () => clearInterval(timer);
   }, [loadNews]);
 
-  // Reset sub-tab when main tab changes
+  // Reset sub-tab to "全部" when main tab changes
   useEffect(() => {
-    const group = SOURCE_GROUPS[activeSource];
-    if (group) {
-      setActiveSubSource(group.children[0].name);
+    if (SOURCE_GROUPS[activeSource]) {
+      setActiveSubSource("");
     }
   }, [activeSource]);
 
@@ -104,13 +109,22 @@ export default function NewsPage() {
 
   const activeGroup = SOURCE_GROUPS[activeSource];
   const subItems = activeGroup
-    ? activeGroup.children.map((c) => {
-        const found = sources.find((s) => s.name === c.name);
-        return {
-          key: c.name,
-          label: <Badge count={found?.today_count ?? 0} size="small" offset={[6, -2]}>{c.label}</Badge>,
-        };
-      })
+    ? [
+        {
+          key: "",
+          label: <Badge count={activeGroup.children.reduce((sum, c) => {
+            const found = sources.find((s) => s.name === c.name);
+            return sum + (found?.today_count ?? 0);
+          }, 0)} size="small" offset={[6, -2]}>全部</Badge>,
+        },
+        ...activeGroup.children.map((c) => {
+          const found = sources.find((s) => s.name === c.name);
+          return {
+            key: c.name,
+            label: <Badge count={found?.today_count ?? 0} size="small" offset={[6, -2]}>{c.label}</Badge>,
+          };
+        }),
+      ]
     : [];
 
   return (
