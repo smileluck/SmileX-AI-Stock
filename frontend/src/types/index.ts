@@ -80,6 +80,28 @@ export const SOURCE_GROUPS: Record<string, {
   },
 };
 
+export interface IndexItem {
+  code: string;
+  name: string;
+  price: number | null;
+  change: number | null;
+  change_pct: number | null;
+  volume?: number | null;
+  amount?: number | null;
+  high?: number | null;
+  low?: number | null;
+  open?: number | null;
+  prev_close?: number | null;
+  amplitude?: number | null;
+  update_time?: string | null;
+}
+
+export interface MarketOverviewResponse {
+  cn_main: IndexItem[];
+  international: IndexItem[];
+  fetch_time: string;
+}
+
 export const SOURCE_COLOR_MAP: Record<string, string> = {
   eastmoney: "red",
   eastmoney_global: "magenta",
