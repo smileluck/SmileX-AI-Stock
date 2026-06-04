@@ -27,4 +27,4 @@ Thumbs.db
 *.lock
 
 # llm_proxy
-llm_proxy/config.json
+llm_proxy/config.yaml
