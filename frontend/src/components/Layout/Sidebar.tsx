@@ -14,6 +14,7 @@ import {
   BulbOutlined,
   RobotOutlined,
   MessageOutlined,
+  PieChartOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -29,6 +30,15 @@ const menuItems = [
     ],
   },
   { key: "/news", icon: <ReadOutlined />, label: "资讯聚合" },
+  {
+    key: "/sector",
+    icon: <PieChartOutlined />,
+    label: "行业板块",
+    children: [
+      { key: "/sector/today", icon: <DashboardOutlined />, label: "今日板块" },
+      { key: "/sector/history", icon: <HistoryOutlined />, label: "历史板块" },
+    ],
+  },
   { key: "/scheduler", icon: <FieldTimeOutlined />, label: "定时任务" },
   { key: "/stock", icon: <StockOutlined />, label: "个股分析" },
   { key: "/recommendation", icon: <ThunderboltOutlined />, label: "今日推荐" },
@@ -51,6 +61,7 @@ export default function Sidebar() {
   const location = useLocation();
   const [openKeys, setOpenKeys] = useState<string[]>(() => {
     if (location.pathname.startsWith("/market")) return ["/market"];
+    if (location.pathname.startsWith("/sector")) return ["/sector"];
     if (location.pathname.startsWith("/ai-assistant")) return ["/ai-assistant"];
     return [];
   });

@@ -186,3 +186,43 @@ export interface GenerateAnalysisResponse {
   data: MarketAnalysisItem | null;
 }
 
+export interface SectorItem {
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  change: number | null;
+  volume: number | null;
+  amount: number | null;
+  up_count: number | null;
+  down_count: number | null;
+  flat_count: number | null;
+  leading_stock: string | null;
+  leading_stock_code: string | null;
+  leading_stock_change_pct: number | null;
+}
+
+export interface SectorCapitalFlowItem {
+  code: string;
+  name: string;
+  change_pct: number | null;
+  main_net_inflow: number | null;
+  main_net_inflow_pct: number | null;
+  super_large_net: number | null;
+  large_net: number | null;
+  medium_net: number | null;
+  small_net: number | null;
+}
+
+export interface SectorOverviewResponse {
+  industry: SectorItem[];
+  concept: SectorItem[];
+  fetch_time: string;
+}
+
+export interface SectorCapitalFlowResponse {
+  industry: SectorCapitalFlowItem[];
+  concept: SectorCapitalFlowItem[];
+  fetch_time: string;
+}
+
