@@ -8,6 +8,7 @@ from app.api.market import router as market_router
 from app.api.market_analysis import router as analysis_router
 from app.api.news import router as news_router
 from app.api.proxy import router as proxy_router
+from app.api.chat import router as chat_router
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
@@ -45,3 +46,4 @@ app.include_router(market_router, prefix="/api/v1")
 app.include_router(analysis_router, prefix="/api/v1")
 app.include_router(news_router, prefix="/api/v1")
 app.include_router(proxy_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")

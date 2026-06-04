@@ -12,6 +12,8 @@ import {
   FieldTimeOutlined,
   FundOutlined,
   BulbOutlined,
+  RobotOutlined,
+  MessageOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -33,15 +35,25 @@ const menuItems = [
   { key: "/history", icon: <HistoryOutlined />, label: "历史推荐" },
   { key: "/strategy", icon: <ExperimentOutlined />, label: "策略管理" },
   { key: "/backtest", icon: <BarChartOutlined />, label: "策略回测" },
-  { key: "/settings", icon: <SettingOutlined />, label: "系统设置" },
+  {
+    key: "/ai-assistant",
+    icon: <RobotOutlined />,
+    label: "AI助手",
+    children: [
+      { key: "/ai-assistant/llm-config", icon: <SettingOutlined />, label: "LLM配置" },
+      { key: "/ai-assistant/chat", icon: <MessageOutlined />, label: "AI对话" },
+    ],
+  },
 ];
 
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [openKeys, setOpenKeys] = useState<string[]>(
-    location.pathname.startsWith("/market") ? ["/market"] : [],
-  );
+  const [openKeys, setOpenKeys] = useState<string[]>(() => {
+    if (location.pathname.startsWith("/market")) return ["/market"];
+    if (location.pathname.startsWith("/ai-assistant")) return ["/ai-assistant"];
+    return [];
+  });
 
   return (
     <Menu

@@ -9,7 +9,7 @@ import {
 import { fetchProxyStatus, testProxyConnection } from "../api/aiConfig";
 import type { ProxyStatus } from "../api/aiConfig";
 
-export default function Settings() {
+export default function LLMConfig() {
   const [status, setStatus] = useState<ProxyStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -51,7 +51,7 @@ export default function Settings() {
     <div>
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
-          系统设置
+          LLM 配置
         </Typography.Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>

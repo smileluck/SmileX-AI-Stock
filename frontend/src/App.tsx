@@ -5,7 +5,8 @@ import MarketHistory from "./pages/MarketHistory";
 import MarketAnalysis from "./pages/MarketAnalysis";
 import NewsPage from "./pages/News";
 import SchedulerPage from "./pages/Scheduler";
-import Settings from "./pages/Settings";
+import LLMConfig from "./pages/LLMConfig";
+import AIChat from "./pages/AIChat";
 
 function App() {
   return (
@@ -18,7 +19,10 @@ function App() {
           <Route path="/market/history" element={<MarketHistory />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/scheduler" element={<SchedulerPage />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/ai-assistant" element={<Navigate to="/ai-assistant/llm-config" replace />} />
+          <Route path="/ai-assistant/llm-config" element={<LLMConfig />} />
+          <Route path="/ai-assistant/chat" element={<AIChat />} />
+          <Route path="/settings" element={<Navigate to="/ai-assistant/llm-config" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>
