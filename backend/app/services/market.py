@@ -9,7 +9,18 @@ from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
-# Sina source uses codes like sh000001, sz399001
+# East Money secids for A-stock indices (market.code: 1=SH, 0=SZ)
+CN_INDEX_SECIDS = [
+    "1.000001",  # 上证指数
+    "0.399001",  # 深证成指
+    "0.399006",  # 创业板指
+    "1.000688",  # 科创50
+    "1.000300",  # 沪深300
+    "1.000016",  # 上证50
+    "1.000905",  # 中证500
+    "1.000852",  # 中证1000
+]
+
 CN_INDEX_CODES = {
     "sh000001",  # 上证指数
     "sz399001",  # 深证成指
@@ -30,6 +41,18 @@ CN_INDEX_NAMES = {
     "sh000016": "上证50",
     "sh000905": "中证500",
     "sh000852": "中证1000",
+}
+
+# Map East Money secid to our code format (sh/sz prefix)
+_SECID_TO_CODE = {
+    "1.000001": "sh000001",
+    "0.399001": "sz399001",
+    "0.399006": "sz399006",
+    "1.000688": "sh000688",
+    "1.000300": "sh000300",
+    "1.000016": "sh000016",
+    "1.000905": "sh000905",
+    "1.000852": "sh000852",
 }
 
 # East Money secids for global indices
@@ -57,6 +80,11 @@ GLOBAL_INDEX_NAMES = {
     "FCHI": "法国CAC40",
 }
 
+_EASTMONEY_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Referer": "https://quote.eastmoney.com/",
+}
+
 
 def _parse_float(val) -> float | None:
     if val is None or (isinstance(val, float) and pd.isna(val)):
@@ -68,30 +96,47 @@ def _parse_float(val) -> float | None:
 
 
 def _get_cn_indices() -> list[dict]:
+    secids = ",".join(CN_INDEX_SECIDS)
+    session = requests.Session()
+    retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
+    session.mount("https://", HTTPAdapter(max_retries=retry))
     try:
-        df = ak.stock_zh_index_spot_sina()
+        r = session.get(
+            "http://push2.eastmoney.com/api/qt/ulist.np/get",
+            params={
+                "fltt": 2,
+                "fields": "f2,f3,f4,f5,f6,f7,f12,f14,f15,f16,f17,f18",
+                "secids": secids,
+            },
+            timeout=10,
+            headers=_EASTMONEY_HEADERS,
+        )
+        r.raise_for_status()
+        items = r.json()["data"]["diff"]
     except Exception:
-        logger.warning("Failed to fetch Chinese indices from Sina", exc_info=True)
+        logger.warning("Failed to fetch Chinese indices from EastMoney", exc_info=True)
         return []
 
     results = []
-    for _, row in df.iterrows():
-        code = str(row.iloc[0])
-        if code not in CN_INDEX_CODES:
+    for secid in CN_INDEX_SECIDS:
+        code = _SECID_TO_CODE[secid]
+        raw_code = code[2:]  # strip sh/sz prefix
+        item = next((i for i in items if i.get("f12") == raw_code), None)
+        if not item:
             continue
         results.append({
             "code": code,
-            "name": str(row.iloc[1]),
-            "price": _parse_float(row.iloc[2]),
-            "change": _parse_float(row.iloc[3]),
-            "change_pct": _parse_float(row.iloc[4]),
-            "open": _parse_float(row.iloc[5]),
-            "prev_close": _parse_float(row.iloc[6]),
-            "high": _parse_float(row.iloc[7]),
-            "low": _parse_float(row.iloc[8]),
-            "volume": _parse_float(row.iloc[9]),
-            "amount": _parse_float(row.iloc[10]),
-            "amplitude": None,
+            "name": CN_INDEX_NAMES[code],
+            "price": _parse_float(item.get("f2")),
+            "change": _parse_float(item.get("f4")),
+            "change_pct": _parse_float(item.get("f3")),
+            "volume": _parse_float(item.get("f5")),
+            "amount": _parse_float(item.get("f6")),
+            "amplitude": _parse_float(item.get("f7")),
+            "open": _parse_float(item.get("f18")),
+            "prev_close": _parse_float(item.get("f17")),
+            "high": _parse_float(item.get("f15")),
+            "low": _parse_float(item.get("f16")),
             "update_time": None,
         })
     return results
@@ -111,10 +156,7 @@ def _get_global_indices() -> list[dict]:
                 "secids": secids,
             },
             timeout=10,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "Referer": "https://quote.eastmoney.com/",
-            },
+            headers=_EASTMONEY_HEADERS,
         )
         r.raise_for_status()
         items = r.json()["data"]["diff"]
