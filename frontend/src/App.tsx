@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import MarketHistory from "./pages/MarketHistory";
 import NewsPage from "./pages/News";
 import SchedulerPage from "./pages/Scheduler";
+import Settings from "./pages/Settings";
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
           <Route path="/market/history" element={<MarketHistory />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/scheduler" element={<SchedulerPage />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>

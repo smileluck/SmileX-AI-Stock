@@ -27,6 +27,23 @@ CREATE TABLE IF NOT EXISTS sync_log (
 );
 CREATE INDEX IF NOT EXISTS idx_sync_log_job ON sync_log(job_id);
 CREATE INDEX IF NOT EXISTS idx_sync_log_created ON sync_log(created_at);
+
+CREATE TABLE IF NOT EXISTS ai_model_config (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    provider    TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    base_url    TEXT DEFAULT '',
+    api_key_enc TEXT NOT NULL,
+    temperature REAL DEFAULT 0.7,
+    max_tokens  INTEGER DEFAULT 4096,
+    is_default  INTEGER DEFAULT 0,
+    is_enabled  INTEGER DEFAULT 1,
+    extra       TEXT DEFAULT '{}',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_model_name ON ai_model_config(name);
 """
 
 

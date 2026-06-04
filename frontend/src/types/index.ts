@@ -141,3 +141,64 @@ export const SOURCE_COLOR_MAP: Record<string, string> = {
   xueqiu: "volcano",
   jrj: "gold",
 };
+
+export interface AIModelConfig {
+  id: number;
+  name: string;
+  provider: string;
+  model: string;
+  base_url: string;
+  api_key_masked: string;
+  temperature: number;
+  max_tokens: number;
+  is_default: boolean;
+  is_enabled: boolean;
+  extra: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIModelConfigCreate {
+  name: string;
+  provider: string;
+  model: string;
+  base_url?: string;
+  api_key: string;
+  temperature?: number;
+  max_tokens?: number;
+  is_default?: boolean;
+  extra?: Record<string, unknown>;
+}
+
+export interface AIModelConfigUpdate {
+  name?: string;
+  provider?: string;
+  model?: string;
+  base_url?: string;
+  api_key?: string;
+  temperature?: number;
+  max_tokens?: number;
+  is_default?: boolean;
+  is_enabled?: boolean;
+  extra?: Record<string, unknown>;
+}
+
+export interface ConnectionTestResult {
+  success: boolean;
+  message: string;
+  model_info?: Record<string, unknown>;
+}
+
+export interface ProviderInfo {
+  id: string;
+  label: string;
+  base_url: string;
+}
+
+export const PROVIDER_COLOR_MAP: Record<string, string> = {
+  openai: "green",
+  anthropic: "orange",
+  deepseek: "blue",
+  zhipu: "purple",
+  moonshot: "cyan",
+};

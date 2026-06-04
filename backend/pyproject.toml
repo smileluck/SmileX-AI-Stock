@@ -12,4 +12,6 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
     "uvicorn>=0.48.0",
+    "litellm>=1.72.0",
+    "cryptography>=45.0.0",
 ]
