@@ -11,6 +11,7 @@ import {
   ThunderboltOutlined,
   FieldTimeOutlined,
   FundOutlined,
+  BulbOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -21,6 +22,7 @@ const menuItems = [
     label: "大盘",
     children: [
       { key: "/market", icon: <DashboardOutlined />, label: "大盘概览" },
+      { key: "/market/analysis", icon: <BulbOutlined />, label: "AI 分析" },
       { key: "/market/history", icon: <HistoryOutlined />, label: "历史大盘" },
     ],
   },

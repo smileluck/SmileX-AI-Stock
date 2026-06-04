@@ -27,6 +27,22 @@ CREATE TABLE IF NOT EXISTS sync_log (
 );
 CREATE INDEX IF NOT EXISTS idx_sync_log_job ON sync_log(job_id);
 CREATE INDEX IF NOT EXISTS idx_sync_log_created ON sync_log(created_at);
+
+CREATE TABLE IF NOT EXISTS market_analysis (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date          TEXT UNIQUE NOT NULL,
+    analysis_text       TEXT NOT NULL DEFAULT '',
+    prediction_text     TEXT NOT NULL DEFAULT '',
+    prediction_summary  TEXT NOT NULL DEFAULT '{}',
+    actual_data         TEXT NOT NULL DEFAULT '{}',
+    review_text         TEXT NOT NULL DEFAULT '',
+    model_used          TEXT NOT NULL DEFAULT '',
+    status              TEXT NOT NULL DEFAULT 'pending',
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ma_date ON market_analysis(trade_date);
+CREATE INDEX IF NOT EXISTS idx_ma_status ON market_analysis(status);
 """
 
 

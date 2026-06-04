@@ -41,3 +41,46 @@ class IndexHistoryData(BaseModel):
 class MarketHistoryResponse(BaseModel):
     indices: list[IndexHistoryData]
     fetch_time: str
+
+
+class PredictionIndex(BaseModel):
+    predicted_change_pct: float | None = None
+    support: float | None = None
+    resistance: float | None = None
+
+
+class PredictionSummary(BaseModel):
+    overall_direction: str
+    confidence: float
+    indices: dict[str, PredictionIndex]
+    key_factors: list[str]
+    risk_level: str
+
+
+class MarketAnalysisItem(BaseModel):
+    id: int
+    trade_date: str
+    analysis_text: str
+    prediction_text: str
+    prediction_summary: dict
+    actual_data: dict
+    review_text: str
+    model_used: str
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class MarketAnalysisResponse(BaseModel):
+    items: list[MarketAnalysisItem]
+    total: int
+
+
+class GenerateAnalysisRequest(BaseModel):
+    trade_date: str | None = None
+
+
+class GenerateAnalysisResponse(BaseModel):
+    success: bool
+    message: str
+    data: MarketAnalysisItem | None = None

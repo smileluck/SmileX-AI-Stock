@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.market import router as market_router
+from app.api.market_analysis import router as analysis_router
 from app.api.news import router as news_router
 from app.api.proxy import router as proxy_router
 from app.database import init_db
@@ -18,7 +20,13 @@ async def lifespan(app: FastAPI):
     init_db()
     start_scheduler()
     from app.services.scheduler import add_job
+    from app.services.market_analysis import generate_daily_analysis
     add_job(lambda: sync_all(trigger="scheduled"), job_id="news_sync", seconds=SYNC_INTERVAL_SECONDS)
+    add_job(
+        lambda: generate_daily_analysis(datetime.now().strftime("%Y-%m-%d")),
+        job_id="daily_market_analysis",
+        cron="15 15 * * 1-5",
+    )
     yield
     shutdown_scheduler()
 
@@ -34,5 +42,6 @@ app.add_middleware(
 )
 
 app.include_router(market_router, prefix="/api/v1")
+app.include_router(analysis_router, prefix="/api/v1")
 app.include_router(news_router, prefix="/api/v1")
 app.include_router(proxy_router, prefix="/api/v1")

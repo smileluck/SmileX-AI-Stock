@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./components/Layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import MarketHistory from "./pages/MarketHistory";
+import MarketAnalysis from "./pages/MarketAnalysis";
 import NewsPage from "./pages/News";
 import SchedulerPage from "./pages/Scheduler";
 import Settings from "./pages/Settings";
@@ -13,6 +14,7 @@ function App() {
         <Route element={<AppLayout />}>
           <Route path="/" element={<Navigate to="/market" replace />} />
           <Route path="/market" element={<Dashboard />} />
+          <Route path="/market/analysis" element={<MarketAnalysis />} />
           <Route path="/market/history" element={<MarketHistory />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/scheduler" element={<SchedulerPage />} />

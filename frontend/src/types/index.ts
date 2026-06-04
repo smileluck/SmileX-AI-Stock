@@ -142,3 +142,47 @@ export const SOURCE_COLOR_MAP: Record<string, string> = {
   jrj: "gold",
 };
 
+export interface PredictionIndex {
+  predicted_change_pct: number | null;
+  support: number | null;
+  resistance: number | null;
+}
+
+export interface PredictionSummary {
+  overall_direction: "up" | "down" | "flat";
+  confidence: number;
+  indices: Record<string, PredictionIndex>;
+  key_factors: string[];
+  risk_level: "low" | "medium" | "high";
+}
+
+export interface ActualData {
+  indices: Record<string, { close: number; change_pct: number; volume?: number }>;
+  fetch_time: string;
+}
+
+export interface MarketAnalysisItem {
+  id: number;
+  trade_date: string;
+  analysis_text: string;
+  prediction_text: string;
+  prediction_summary: PredictionSummary;
+  actual_data: ActualData;
+  review_text: string;
+  model_used: string;
+  status: "pending" | "analyzed" | "reviewed";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MarketAnalysisResponse {
+  items: MarketAnalysisItem[];
+  total: number;
+}
+
+export interface GenerateAnalysisResponse {
+  success: boolean;
+  message: string;
+  data: MarketAnalysisItem | null;
+}
+
