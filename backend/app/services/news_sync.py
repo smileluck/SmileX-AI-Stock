@@ -48,7 +48,7 @@ def _normalize_publish_time(publish_time: str, fetch_time: str) -> str:
             pass
 
     # Standard datetime formats
-    for fmt in (_STD_FMT, "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d"):
+    for fmt in (_STD_FMT, "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d"):
         try:
             return datetime.strptime(s, fmt).strftime(_STD_FMT)
         except ValueError:
