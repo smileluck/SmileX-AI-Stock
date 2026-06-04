@@ -43,6 +43,44 @@ CREATE TABLE IF NOT EXISTS market_analysis (
 );
 CREATE INDEX IF NOT EXISTS idx_ma_date ON market_analysis(trade_date);
 CREATE INDEX IF NOT EXISTS idx_ma_status ON market_analysis(status);
+
+CREATE TABLE IF NOT EXISTS sector_snapshot (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date   TEXT NOT NULL,
+    sector_type  TEXT NOT NULL,
+    item_count   INTEGER NOT NULL DEFAULT 0,
+    status       TEXT NOT NULL DEFAULT 'ok',
+    created_at   TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ss_date_type ON sector_snapshot(trade_date, sector_type);
+
+CREATE TABLE IF NOT EXISTS sector_snapshot_item (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id           INTEGER NOT NULL REFERENCES sector_snapshot(id),
+    trade_date            TEXT NOT NULL,
+    sector_type           TEXT NOT NULL,
+    code                  TEXT NOT NULL,
+    name                  TEXT NOT NULL,
+    price                 REAL,
+    change_pct            REAL,
+    change                REAL,
+    volume                REAL,
+    amount                REAL,
+    up_count              INTEGER,
+    down_count            INTEGER,
+    flat_count            INTEGER,
+    leading_stock         TEXT,
+    leading_stock_code    TEXT,
+    leading_stock_change_pct REAL,
+    main_net_inflow       REAL,
+    main_net_inflow_pct   REAL,
+    super_large_net       REAL,
+    large_net             REAL,
+    medium_net            REAL,
+    small_net             REAL
+);
+CREATE INDEX IF NOT EXISTS idx_ssi_date_type ON sector_snapshot_item(trade_date, sector_type);
+CREATE INDEX IF NOT EXISTS idx_ssi_code_date ON sector_snapshot_item(code, trade_date);
 """
 
 

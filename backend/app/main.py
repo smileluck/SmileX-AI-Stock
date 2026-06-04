@@ -12,6 +12,7 @@ from app.api.chat import router as chat_router
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
+from app.services.sector import snapshot_sector_data
 
 SYNC_INTERVAL_SECONDS = 300
 
@@ -27,6 +28,11 @@ async def lifespan(app: FastAPI):
         lambda: generate_daily_analysis(datetime.now().strftime("%Y-%m-%d")),
         job_id="daily_market_analysis",
         cron="15 15 * * 1-5",
+    )
+    add_job(
+        lambda: snapshot_sector_data(trigger="scheduled"),
+        job_id="sector_snapshot",
+        cron="20 15 * * 1-5",
     )
     yield
     shutdown_scheduler()

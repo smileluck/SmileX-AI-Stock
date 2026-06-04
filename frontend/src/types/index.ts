@@ -226,3 +226,77 @@ export interface SectorCapitalFlowResponse {
   fetch_time: string;
 }
 
+export interface SectorHistoryItem {
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  change: number | null;
+  volume: number | null;
+  amount: number | null;
+  up_count: number | null;
+  down_count: number | null;
+  flat_count: number | null;
+  leading_stock: string | null;
+  leading_stock_code: string | null;
+  leading_stock_change_pct: number | null;
+  main_net_inflow: number | null;
+  main_net_inflow_pct: number | null;
+  super_large_net: number | null;
+  large_net: number | null;
+  medium_net: number | null;
+  small_net: number | null;
+}
+
+export interface SectorHistoryDateResponse {
+  trade_date: string;
+  sector_type: string;
+  items: SectorHistoryItem[];
+  item_count: number;
+}
+
+export interface SectorAggregatedItem {
+  code: string;
+  name: string;
+  avg_change_pct: number | null;
+  total_main_net_inflow: number | null;
+  avg_main_net_inflow_pct: number | null;
+  best_change_pct: number | null;
+  worst_change_pct: number | null;
+  trading_days: number;
+}
+
+export interface SectorHistoryRangeResponse {
+  start_date: string;
+  end_date: string;
+  sector_type: string;
+  sectors: SectorAggregatedItem[];
+}
+
+export interface SectorTrendPoint {
+  date: string;
+  change_pct: number | null;
+  main_net_inflow: number | null;
+  price: number | null;
+  volume: number | null;
+}
+
+export interface SectorTrendResponse {
+  code: string;
+  name: string;
+  sector_type: string;
+  data: SectorTrendPoint[];
+}
+
+export interface SectorDatesResponse {
+  dates: string[];
+}
+
+export interface SectorSnapshotResponse {
+  success: boolean;
+  message: string;
+  trade_date: string | null;
+  industry_count: number;
+  concept_count: number;
+}
+
