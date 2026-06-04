@@ -7,6 +7,10 @@ from app.services.ai_config import get_decrypted_config, get_decrypted_default
 def _build_litellm_model(provider: str, model: str) -> str:
     if provider in ("openai", "anthropic"):
         return model
+    if provider == "minimax":
+        return f"openai/{model}"
+    if provider == "kimi":
+        return f"openai/{model}"
     return f"{provider}/{model}"
 
 

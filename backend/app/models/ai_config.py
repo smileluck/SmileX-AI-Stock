@@ -6,6 +6,8 @@ PROVIDERS = {
     "deepseek": {"label": "DeepSeek", "base_url": "https://api.deepseek.com"},
     "zhipu": {"label": "智谱AI", "base_url": "https://open.bigmodel.cn/api/paas/v4"},
     "moonshot": {"label": "Moonshot", "base_url": "https://api.moonshot.cn/v1"},
+    "minimax": {"label": "MiniMax", "base_url": "https://api.minimaxi.com/anthropic"},
+    "kimi": {"label": "Kimi", "base_url": "https://api.kimi.com/coding/v1/chat/completions"},
 }
 
 

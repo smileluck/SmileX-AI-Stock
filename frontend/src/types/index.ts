@@ -201,4 +201,6 @@ export const PROVIDER_COLOR_MAP: Record<string, string> = {
   deepseek: "blue",
   zhipu: "purple",
   moonshot: "cyan",
+  minimax: "magenta",
+  kimi: "gold",
 };
