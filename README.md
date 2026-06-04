@@ -44,6 +44,48 @@ npm run dev
 
 访问 http://localhost:5173，设置页面可查看 LiteLLM Proxy 连接状态。
 
+## 板块数据
+
+### 实时板块
+
+后端启动后，工作日 15:20 自动执行板块数据快照（行业 + 概念），将实时行情和资金流向写入 SQLite。也可手动触发：
+
+```bash
+curl -X POST http://localhost:8001/api/v1/market/sector/snapshot
+```
+
+### 历史数据回填
+
+`backfill_sector.py` 支持从东方财富或同花顺回填过去一年的板块历史 K 线数据。
+
+```bash
+cd backend
+
+# 自动检测数据源（EM 可用则用 EM，否则用 THS）
+python backfill_sector.py
+
+# 强制指定数据源
+python backfill_sector.py --source em    # 东方财富（板块编码与实时数据一致）
+python backfill_sector.py --source ths   # 同花顺（独立编码体系，不依赖 EM）
+```
+
+| 数据源 | 说明 | 板块编码 |
+|--------|------|----------|
+| EM（东方财富） | `push2his.eastmoney.com` K 线接口，与实时数据一致 | BKxxxx |
+| THS（同花顺） | akshare 同花顺源，EM 被限流时自动降级 | 881xxx / 30xxxx |
+
+脚本自动跳过已有数据的板块，支持中断后续跑。
+
+### 历史查询 API
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/market/sector/history/date` | GET | 按日查询：`trade_date` + `sector_type` |
+| `/market/sector/history/range` | GET | 区间统计：`start_date` + `end_date` + `sector_type` |
+| `/market/sector/history/trend` | GET | 单板块趋势：`code` + 日期范围 |
+| `/market/sector/history/dates` | GET | 可用快照日期列表 |
+| `/market/sector/snapshot` | POST | 手动触发快照 |
+
 ## 环境变量
 
 | 变量 | 说明 | 默认值 |
