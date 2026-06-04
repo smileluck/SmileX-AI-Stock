@@ -11,9 +11,5 @@ DATA_DIR.mkdir(exist_ok=True)
 
 DATABASE_PATH = DATA_DIR / "stock.db"
 
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
-
-LLM_DEFAULT_PROVIDER = os.getenv("LLM_DEFAULT_PROVIDER", "")
-LLM_DEFAULT_MODEL = os.getenv("LLM_DEFAULT_MODEL", "")
-LLM_DEFAULT_API_KEY = os.getenv("LLM_DEFAULT_API_KEY", "")
-LLM_DEFAULT_BASE_URL = os.getenv("LLM_DEFAULT_BASE_URL", "")
+LITELLM_PROXY_URL = os.getenv("LITELLM_PROXY_URL", "http://localhost:4000")
+LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "")
