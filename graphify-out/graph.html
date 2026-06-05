@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>graphify - graphify-out/graph.html</title>
+<script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"
+        integrity="sha384-Ux6phic9PEHJ38YtrijhkzyJ8yQlH8i/+buBR8s3mAZOJrP1gwyvAcIYl3GWtpX1"
+        crossorigin="anonymous"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f1a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #graph { flex: 1; }
+  #sidebar { width: 280px; background: #1a1a2e; border-left: 1px solid #2a2a4e; display: flex; flex-direction: column; overflow: hidden; }
+  #search-wrap { padding: 12px; border-bottom: 1px solid #2a2a4e; }
+  #search { width: 100%; background: #0f0f1a; border: 1px solid #3a3a5e; color: #e0e0e0; padding: 7px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+  #search:focus { border-color: #4E79A7; }
+  #search-results { max-height: 140px; overflow-y: auto; padding: 4px 12px; border-bottom: 1px solid #2a2a4e; display: none; }
+  .search-item { padding: 4px 6px; cursor: pointer; border-radius: 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .search-item:hover { background: #2a2a4e; }
+  #info-panel { padding: 14px; border-bottom: 1px solid #2a2a4e; min-height: 140px; }
+  #info-panel h3 { font-size: 13px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  #info-content { font-size: 13px; color: #ccc; line-height: 1.6; }
+  #info-content .field { margin-bottom: 5px; }
+  #info-content .field b { color: #e0e0e0; }
+  #info-content .empty { color: #555; font-style: italic; }
+  .neighbor-link { display: block; padding: 2px 6px; margin: 2px 0; border-radius: 3px; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid #333; }
+  .neighbor-link:hover { background: #2a2a4e; }
+  #neighbors-list { max-height: 160px; overflow-y: auto; margin-top: 4px; }
+  #legend-wrap { flex: 1; overflow-y: auto; padding: 12px; }
+  #legend-wrap h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  .legend-item:hover { background: #2a2a4e; padding-left: 4px; }
+  .legend-item.dimmed { opacity: 0.35; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend-count { color: #666; font-size: 11px; }
+  #stats { padding: 10px 14px; border-top: 1px solid #2a2a4e; font-size: 11px; color: #555; }
+  #legend-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 4px 0; }
+  #legend-controls label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: #aaa; user-select: none; }
+  #legend-controls label:hover { color: #e0e0e0; }
+  .legend-cb, #select-all-cb { appearance: none; -webkit-appearance: none; width: 14px; height: 14px; border: 1.5px solid #3a3a5e; border-radius: 3px; background: #0f0f1a; cursor: pointer; position: relative; flex-shrink: 0; }
+  .legend-cb:checked, #select-all-cb:checked { background: #4E79A7; border-color: #4E79A7; }
+  .legend-cb:checked::after, #select-all-cb:checked::after { content: ''; position: absolute; left: 3.5px; top: 1px; width: 4px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  #select-all-cb:indeterminate { background: #4E79A7; border-color: #4E79A7; }
+  #select-all-cb:indeterminate::after { content: ''; position: absolute; left: 2px; top: 5px; width: 8px; height: 2px; background: #fff; border: none; transform: none; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="sidebar">
+  <div id="search-wrap">
+    <input id="search" type="text" placeholder="Search nodes..." autocomplete="off">
+    <div id="search-results"></div>
+  </div>
+  <div id="info-panel">
+    <h3>Node Info</h3>
+    <div id="info-content"><span class="empty">Click a node to inspect it</span></div>
+  </div>
+  <div id="legend-wrap">
+    <h3>Communities</h3>
+    <div id="legend-controls">
+      <label><input type="checkbox" id="select-all-cb" checked onchange="toggleAllCommunities(!this.checked)">Select All</label>
+    </div>
+    <div id="legend"></div>
+  </div>
+  <div id="stats">37 nodes &middot; 42 edges &middot; 6 communities</div>
+</div>
+<script>
+const RAW_NODES = [{"id": "conf_py", "label": "conf.py", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 12.2, "font": {"size": 0, "color": "#ffffff"}, "title": "conf.py", "community": 3, "community_name": "Build Configuration", "source_file": "conf.py", "file_type": "code", "degree": 2}, {"id": "akshare_docs_conf_get_version_string", "label": "get_version_string()", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 12.2, "font": {"size": 0, "color": "#ffffff"}, "title": "get_version_string()", "community": 3, "community_name": "Build Configuration", "source_file": "conf.py", "file_type": "code", "degree": 2}, {"id": "akshare_docs_conf_setup", "label": "setup()", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "setup()", "community": 3, "community_name": "Build Configuration", "source_file": "conf.py", "file_type": "code", "degree": 1}, {"id": "akshare_docs_conf_rationale_21", "label": "get the version of akshare     :return: version number     :rtype: str, e.g. '", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "get the version of akshare     :return: version number     :rtype: str, e.g. &#x27;", "community": 3, "community_name": "Build Configuration", "source_file": "conf.py", "file_type": "rationale", "degree": 1}, {"id": "akshare", "label": "AKShare", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 40.0, "font": {"size": 12, "color": "#ffffff"}, "title": "AKShare", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/introduction.md", "file_type": "document", "degree": 27}, {"id": "aktools", "label": "AKTools", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 15.6, "font": {"size": 12, "color": "#ffffff"}, "title": "AKTools", "community": 1, "community_name": "Deployment and Infrastructure", "source_file": "akshare-docs/deploy_http.md", "file_type": "document", "degree": 5}, {"id": "akquant", "label": "AKQuant", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 13.3, "font": {"size": 0, "color": "#ffffff"}, "title": "AKQuant", "community": 2, "community_name": "Backtesting and Visualization", "source_file": "akshare-docs/demo.md", "file_type": "document", "degree": 3}, {"id": "pybroker", "label": "PyBroker", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 13.3, "font": {"size": 0, "color": "#ffffff"}, "title": "PyBroker", "community": 2, "community_name": "Backtesting and Visualization", "source_file": "akshare-docs/demo.md", "file_type": "document", "degree": 3}, {"id": "backtrader", "label": "Backtrader", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 14.4, "font": {"size": 0, "color": "#ffffff"}, "title": "Backtrader", "community": 2, "community_name": "Backtesting and Visualization", "source_file": "akshare-docs/demo.md", "file_type": "document", "degree": 4}, {"id": "anaconda", "label": "Anaconda", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 12.2, "font": {"size": 0, "color": "#ffffff"}, "title": "Anaconda", "community": 1, "community_name": "Deployment and Infrastructure", "source_file": "akshare-docs/anaconda.md", "file_type": "document", "degree": 2}, {"id": "pandas", "label": "pandas", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 12.2, "font": {"size": 0, "color": "#ffffff"}, "title": "pandas", "community": 5, "community_name": "Core Dependencies", "source_file": "akshare-docs/dependency.md", "file_type": "document", "degree": 2}, {"id": "numpy", "label": "NumPy", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 12.2, "font": {"size": 0, "color": "#ffffff"}, "title": "NumPy", "community": 5, "community_name": "Core Dependencies", "source_file": "akshare-docs/dependency.md", "file_type": "document", "degree": 2}, {"id": "mini_racer", "label": "mini-racer", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "mini-racer", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/dependency.md", "file_type": "document", "degree": 1}, {"id": "fastapi", "label": "FastAPI", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "FastAPI", "community": 1, "community_name": "Deployment and Infrastructure", "source_file": "akshare-docs/deploy_http.md", "file_type": "document", "degree": 1}, {"id": "uvicorn", "label": "Uvicorn", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "Uvicorn", "community": 1, "community_name": "Deployment and Infrastructure", "source_file": "akshare-docs/deploy_http.md", "file_type": "document", "degree": 1}, {"id": "typer", "label": "Typer", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "Typer", "community": 1, "community_name": "Deployment and Infrastructure", "source_file": "akshare-docs/deploy_http.md", "file_type": "document", "degree": 1}, {"id": "sphinx", "label": "Sphinx", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "Sphinx", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/requirements.txt", "file_type": "document", "degree": 1}, {"id": "docker", "label": "Docker", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.4, "font": {"size": 0, "color": "#ffffff"}, "title": "Docker", "community": 1, "community_name": "Deployment and Infrastructure", "source_file": "akshare-docs/akdocker/akdocker.md", "file_type": "document", "degree": 4}, {"id": "fushare", "label": "FuShare", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 12.2, "font": {"size": 0, "color": "#ffffff"}, "title": "FuShare", "community": 4, "community_name": "Heritage Data Libraries", "source_file": "akshare-docs/introduction.md", "file_type": "document", "degree": 2}, {"id": "tushare", "label": "TuShare", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 12.2, "font": {"size": 0, "color": "#ffffff"}, "title": "TuShare", "community": 4, "community_name": "Heritage Data Libraries", "source_file": "akshare-docs/introduction.md", "file_type": "document", "degree": 2}, {"id": "opendata", "label": "OpenData", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "OpenData", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/special.md", "file_type": "document", "degree": 1}, {"id": "pep8_standard", "label": "PEP 8 Code Standard", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "PEP 8 Code Standard", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/contributing.md", "file_type": "rationale", "degree": 1}, {"id": "interface_naming_convention", "label": "AKShare Interface Naming Convention", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "AKShare Interface Naming Convention", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/contributing.md", "file_type": "rationale", "degree": 1}, {"id": "dataframe_return_format", "label": "DataFrame Return Format", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "DataFrame Return Format", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/contributing.md", "file_type": "rationale", "degree": 1}, {"id": "mini_racer_selection_rationale", "label": "mini-racer Dependency Selection", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "mini-racer Dependency Selection", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/dependency.md", "file_type": "rationale", "degree": 1}, {"id": "volatility_yz_rv", "label": "Yang-Zhang Realized Volatility", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "Yang-Zhang Realized Volatility", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/indicator.md", "file_type": "document", "degree": 1}, {"id": "stock_zh_a_hist", "label": "stock_zh_a_hist Interface", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "stock_zh_a_hist Interface", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/data_tips.md", "file_type": "document", "degree": 1}, {"id": "eastmoney", "label": "East Money (\u4e1c\u65b9\u8d22\u5bcc)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "East Money (\u4e1c\u65b9\u8d22\u5bcc)", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/special.md", "file_type": "document", "degree": 1}, {"id": "sina_finance", "label": "Sina Finance (\u65b0\u6d6a\u8d22\u7ecf)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "Sina Finance (\u65b0\u6d6a\u8d22\u7ecf)", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/special.md", "file_type": "document", "degree": 1}, {"id": "vnpy", "label": "VN.PY", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "VN.PY", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/platform.md", "file_type": "document", "degree": 1}, {"id": "reticulate", "label": "Reticulate (R-Python bridge)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "Reticulate (R-Python bridge)", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/installation.md", "file_type": "document", "degree": 1}, {"id": "ruff", "label": "Ruff", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "Ruff", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/contributing.md", "file_type": "document", "degree": 1}, {"id": "pre_commit", "label": "pre-commit", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "pre-commit", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/contributing.md", "file_type": "document", "degree": 1}, {"id": "raspberry_pi", "label": "Raspberry Pi 4B Support", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "Raspberry Pi 4B Support", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/installation.md", "file_type": "document", "degree": 1}, {"id": "apple_m_series", "label": "Apple M Series Chip Support", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "Apple M Series Chip Support", "community": 0, "community_name": "AKShare Core Platform", "source_file": "akshare-docs/installation.md", "file_type": "document", "degree": 1}, {"id": "jupyterlab", "label": "JupyterLab", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "JupyterLab", "community": 1, "community_name": "Deployment and Infrastructure", "source_file": "akshare-docs/akdocker/akdocker.md", "file_type": "document", "degree": 1}, {"id": "matplotlib", "label": "matplotlib", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 11.1, "font": {"size": 0, "color": "#ffffff"}, "title": "matplotlib", "community": 2, "community_name": "Backtesting and Visualization", "source_file": "akshare-docs/demo.md", "file_type": "document", "degree": 1}];
+const RAW_EDGES = [{"from": "conf_py", "to": "akshare_docs_conf_get_version_string", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "conf_py", "to": "akshare_docs_conf_setup", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare_docs_conf_rationale_21", "to": "akshare_docs_conf_get_version_string", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "aktools", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "pandas", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "mini_racer", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "numpy", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "fushare", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "tushare", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "opendata", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "eastmoney", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "sina_finance", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "anaconda", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "docker", "to": "akshare", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akquant", "to": "akshare", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "pybroker", "to": "akshare", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "backtrader", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "pep8_standard", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "ruff", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "pre_commit", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "stock_zh_a_hist", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "reticulate", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "vnpy", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "sphinx", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "raspberry_pi", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "apple_m_series", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "volatility_yz_rv", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "dataframe_return_format", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "interface_naming_convention", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "akshare", "to": "mini_racer_selection_rationale", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "aktools", "to": "fastapi", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "aktools", "to": "uvicorn", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "aktools", "to": "typer", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "aktools", "to": "docker", "label": "semantically_similar_to", "title": "semantically_similar_to [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "akquant", "to": "pybroker", "label": "semantically_similar_to", "title": "semantically_similar_to [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "akquant", "to": "backtrader", "label": "semantically_similar_to", "title": "semantically_similar_to [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "pybroker", "to": "backtrader", "label": "semantically_similar_to", "title": "semantically_similar_to [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "backtrader", "to": "matplotlib", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "anaconda", "to": "docker", "label": "conceptually_related_to", "title": "conceptually_related_to [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "pandas", "to": "numpy", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "docker", "to": "jupyterlab", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "fushare", "to": "tushare", "label": "semantically_similar_to", "title": "semantically_similar_to [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}];
+const LEGEND = [{"cid": 0, "color": "#4E79A7", "label": "AKShare Core Platform", "count": 18}, {"cid": 1, "color": "#F28E2B", "label": "Deployment and Infrastructure", "count": 7}, {"cid": 2, "color": "#E15759", "label": "Backtesting and Visualization", "count": 4}, {"cid": 3, "color": "#76B7B2", "label": "Build Configuration", "count": 4}, {"cid": 4, "color": "#59A14F", "label": "Heritage Data Libraries", "count": 2}, {"cid": 5, "color": "#EDC948", "label": "Core Dependencies", "count": 2}];
+
+// HTML-escape helper — prevents XSS when injecting graph data into innerHTML
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Build vis datasets
+const nodesDS = new vis.DataSet(RAW_NODES.map(n => ({
+  id: n.id, label: n.label, color: n.color, size: n.size,
+  font: n.font, title: n.title,
+  _community: n.community, _community_name: n.community_name,
+  _source_file: n.source_file, _file_type: n.file_type, _degree: n.degree,
+})));
+
+const edgesDS = new vis.DataSet(RAW_EDGES.map((e, i) => ({
+  id: i, from: e.from, to: e.to,
+  label: '',
+  title: e.title,
+  dashes: e.dashes,
+  width: e.width,
+  color: e.color,
+  arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+})));
+
+const container = document.getElementById('graph');
+const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
+  physics: {
+    enabled: true,
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: {
+      gravitationalConstant: -60,
+      centralGravity: 0.005,
+      springLength: 120,
+      springConstant: 0.08,
+      damping: 0.4,
+      avoidOverlap: 0.8,
+    },
+    stabilization: { iterations: 200, fit: true },
+  },
+  interaction: {
+    hover: true,
+    tooltipDelay: 100,
+    hideEdgesOnDrag: true,
+    navigationButtons: false,
+    keyboard: false,
+  },
+  nodes: { shape: 'dot', borderWidth: 1.5 },
+  edges: { smooth: { type: 'continuous', roundness: 0.2 }, selectionWidth: 3 },
+});
+
+network.once('stabilizationIterationsDone', () => {
+  network.setOptions({ physics: { enabled: false } });
+});
+
+function showInfo(nodeId) {
+  const n = nodesDS.get(nodeId);
+  if (!n) return;
+  const neighborIds = network.getConnectedNodes(nodeId);
+  const neighborItems = neighborIds.map(nid => {
+    const nb = nodesDS.get(nid);
+    const color = nb ? nb.color.background : '#555';
+    return `<span class="neighbor-link" style="border-left-color:${esc(color)}" onclick="focusNode(${JSON.stringify(nid)})">${esc(nb ? nb.label : nid)}</span>`;
+  }).join('');
+  document.getElementById('info-content').innerHTML = `
+    <div class="field"><b>${esc(n.label)}</b></div>
+    <div class="field">Type: ${esc(n._file_type || 'unknown')}</div>
+    <div class="field">Community: ${esc(n._community_name)}</div>
+    <div class="field">Source: ${esc(n._source_file || '-')}</div>
+    <div class="field">Degree: ${n._degree}</div>
+    ${neighborIds.length ? `<div class="field" style="margin-top:8px;color:#aaa;font-size:11px">Neighbors (${neighborIds.length})</div><div id="neighbors-list">${neighborItems}</div>` : ''}
+  `;
+}
+
+function focusNode(nodeId) {
+  network.focus(nodeId, { scale: 1.4, animation: true });
+  network.selectNodes([nodeId]);
+  showInfo(nodeId);
+}
+
+// Track hovered node — hover detection is more reliable than click params
+let hoveredNodeId = null;
+network.on('hoverNode', params => {
+  hoveredNodeId = params.node;
+  container.style.cursor = 'pointer';
+});
+network.on('blurNode', () => {
+  hoveredNodeId = null;
+  container.style.cursor = 'default';
+});
+container.addEventListener('click', () => {
+  if (hoveredNodeId !== null) {
+    showInfo(hoveredNodeId);
+    network.selectNodes([hoveredNodeId]);
+  }
+});
+network.on('click', params => {
+  if (params.nodes.length > 0) {
+    showInfo(params.nodes[0]);
+  } else if (hoveredNodeId === null) {
+    document.getElementById('info-content').innerHTML = '<span class="empty">Click a node to inspect it</span>';
+  }
+});
+
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  searchResults.innerHTML = '';
+  if (!q) { searchResults.style.display = 'none'; return; }
+  const matches = RAW_NODES.filter(n => n.label.toLowerCase().includes(q)).slice(0, 20);
+  if (!matches.length) { searchResults.style.display = 'none'; return; }
+  searchResults.style.display = 'block';
+  matches.forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'search-item';
+    el.textContent = n.label;
+    el.style.borderLeft = `3px solid ${n.color.background}`;
+    el.style.paddingLeft = '8px';
+    el.onclick = () => {
+      network.focus(n.id, { scale: 1.5, animation: true });
+      network.selectNodes([n.id]);
+      showInfo(n.id);
+      searchResults.style.display = 'none';
+      searchInput.value = '';
+    };
+    searchResults.appendChild(el);
+  });
+});
+document.addEventListener('click', e => {
+  if (!searchResults.contains(e.target) && e.target !== searchInput)
+    searchResults.style.display = 'none';
+});
+
+const hiddenCommunities = new Set();
+
+const selectAllCb = document.getElementById('select-all-cb');
+
+function updateSelectAllState() {
+  const total = LEGEND.length;
+  const hidden = hiddenCommunities.size;
+  selectAllCb.checked = hidden === 0;
+  selectAllCb.indeterminate = hidden > 0 && hidden < total;
+}
+
+function toggleAllCommunities(hide) {
+  document.querySelectorAll('.legend-item').forEach(item => {
+    hide ? item.classList.add('dimmed') : item.classList.remove('dimmed');
+  });
+  document.querySelectorAll('.legend-cb').forEach(cb => {
+    cb.checked = !hide;
+  });
+  LEGEND.forEach(c => {
+    if (hide) hiddenCommunities.add(c.cid); else hiddenCommunities.delete(c.cid);
+  });
+  const updates = RAW_NODES.map(n => ({ id: n.id, hidden: hide }));
+  nodesDS.update(updates);
+  updateSelectAllState();
+}
+
+const legendEl = document.getElementById('legend');
+LEGEND.forEach(c => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.className = 'legend-cb';
+  cb.checked = true;
+  cb.addEventListener('change', (e) => {
+    e.stopPropagation();
+    if (cb.checked) {
+      hiddenCommunities.delete(c.cid);
+      item.classList.remove('dimmed');
+    } else {
+      hiddenCommunities.add(c.cid);
+      item.classList.add('dimmed');
+    }
+    const updates = RAW_NODES
+      .filter(n => n.community === c.cid)
+      .map(n => ({ id: n.id, hidden: !cb.checked }));
+    nodesDS.update(updates);
+    updateSelectAllState();
+  });
+  item.innerHTML = `<div class="legend-dot" style="background:${c.color}"></div>
+    <span class="legend-label">${c.label}</span>
+    <span class="legend-count">${c.count}</span>`;
+  item.prepend(cb);
+  item.onclick = (e) => {
+    if (e.target === cb) return;
+    cb.checked = !cb.checked;
+    cb.dispatchEvent(new Event('change'));
+  };
+  legendEl.appendChild(item);
+});
+</script>
+<script>
+// Render hyperedges as shaded regions
+const hyperedges = [{"id": "akshare_backtest_frameworks", "label": "AKShare-Compatible Backtesting Frameworks", "nodes": ["akshare", "akquant", "pybroker", "backtrader"], "relation": "participate_in", "confidence": "EXTRACTED", "confidence_score": 0.95, "source_file": "akshare-docs/demo.md"}, {"id": "akshare_deployment_options", "label": "AKShare Deployment Options", "nodes": ["akshare", "aktools", "docker"], "relation": "participate_in", "confidence": "EXTRACTED", "confidence_score": 0.85, "source_file": "akshare-docs/deploy_http.md"}, {"id": "python_finance_data_libraries", "label": "Python Finance Data Libraries (Heritage)", "nodes": ["akshare", "fushare", "tushare", "opendata"], "relation": "participate_in", "confidence": "EXTRACTED", "confidence_score": 0.85, "source_file": "akshare-docs/introduction.md"}];
+// afterDrawing passes ctx already transformed to network coordinate space.
+// Draw node positions raw — no manual pan/zoom/DPR math needed.
+network.on('afterDrawing', function(ctx) {
+    hyperedges.forEach(h => {
+        const positions = h.nodes
+            .map(nid => network.getPositions([nid])[nid])
+            .filter(p => p !== undefined);
+        if (positions.length < 2) return;
+        ctx.save();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = '#6366f1';
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        // Centroid and expanded hull in network coordinates
+        const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
+        const cy = positions.reduce((s, p) => s + p.y, 0) / positions.length;
+        const expanded = positions.map(p => ({
+            x: cx + (p.x - cx) * 1.15,
+            y: cy + (p.y - cy) * 1.15
+        }));
+        ctx.moveTo(expanded[0].x, expanded[0].y);
+        expanded.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 0.4;
+        ctx.stroke();
+        // Label
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = '#4f46e5';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(h.label, cx, cy - 5);
+        ctx.restore();
+    });
+});
+</script>
+</body>
+</html>
