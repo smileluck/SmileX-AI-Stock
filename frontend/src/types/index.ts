@@ -164,6 +164,8 @@ export interface ActualData {
 export interface ScoredNewsItem {
   title: string;
   source: string;
+  url: string;
+  publish_time: string;
   impact_score: number;
   impact_category: string;
 }

@@ -162,15 +162,15 @@ def get_today_market_context(date_str: str) -> dict:
     try:
         if is_weekend:
             rows = conn.execute(
-                "SELECT title, source FROM news WHERE date(publish_time) BETWEEN ? AND ? ORDER BY publish_time DESC",
+                "SELECT title, source, url, publish_time FROM news WHERE date(publish_time) BETWEEN ? AND ? ORDER BY publish_time DESC",
                 (friday_str, date_str),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT title, source FROM news WHERE date(publish_time) = ? ORDER BY publish_time DESC LIMIT 30",
+                "SELECT title, source, url, publish_time FROM news WHERE date(publish_time) = ? ORDER BY publish_time DESC LIMIT 30",
                 (date_str,),
             ).fetchall()
-        recent_news = [{"title": r["title"], "source": r["source"]} for r in rows]
+        recent_news = [{"title": r["title"], "source": r["source"], "url": r["url"], "publish_time": r["publish_time"]} for r in rows]
     finally:
         conn.close()
 

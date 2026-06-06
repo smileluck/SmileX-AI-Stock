@@ -203,7 +203,7 @@ function DailyAnalysisTab() {
                       ),
                     },
                     {
-                      title: "影响力", dataIndex: "impact_score", key: "score", width: 100,
+                      title: "影响力", dataIndex: "impact_score", key: "score", width: 90,
                       render: (v: number) => {
                         const color = v >= 8 ? "#cf1322" : v >= 6 ? "#fa8c16" : v >= 4 ? "#faad14" : "#d9d9d9";
                         return <span style={{ color, fontWeight: "bold" }}>{v}/10</span>;
@@ -212,7 +212,7 @@ function DailyAnalysisTab() {
                       defaultSortOrder: "descend",
                     },
                     {
-                      title: "分类", dataIndex: "impact_category", key: "cat", width: 100,
+                      title: "分类", dataIndex: "impact_category", key: "cat", width: 90,
                       render: (v: string) => {
                         const catColors: Record<string, string> = {
                           "政策变动": "red", "宏观经济": "purple", "外围市场": "blue",
@@ -223,9 +223,26 @@ function DailyAnalysisTab() {
                     },
                     {
                       title: "来源", dataIndex: "source", key: "source", width: 90,
+                      render: (v: string) => {
+                        const labels: Record<string, string> = {
+                          eastmoney: "东方财富", eastmoney_global: "7×24全球",
+                          cls: "财联社", cls_red: "财联社·加红", cls_announcement: "财联社·公司",
+                          cls_watch: "财联社·看盘", cls_hk_us: "财联社·港美股",
+                          cls_fund: "财联社·基金", cls_remind: "财联社·提醒",
+                          tonghuashun: "同花顺", sina: "新浪财经", wallstreetcn: "华尔街见闻",
+                          yicai: "第一财经", futu: "富途", xueqiu: "雪球", jrj: "金融界",
+                        };
+                        return <Tag>{labels[v] || v}</Tag>;
+                      },
+                    },
+                    {
+                      title: "发布时间", dataIndex: "publish_time", key: "time", width: 140,
+                      render: (v: string) => v ? dayjs(v).format("MM-DD HH:mm") : "-",
                     },
                     {
                       title: "标题", dataIndex: "title", key: "title",
+                      render: (v: string, r: ScoredNewsItem) =>
+                        r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer">{v}</a> : v,
                     },
                   ]}
                 />
