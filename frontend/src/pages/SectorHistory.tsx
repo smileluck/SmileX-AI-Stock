@@ -4,8 +4,6 @@ import {
   Spin,
   Alert,
   Typography,
-  Segmented,
-  Tabs,
   Table,
   DatePicker,
   Select,
@@ -16,15 +14,12 @@ import { CameraOutlined, SyncOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import ReactECharts from "echarts-for-react";
 import {
-  fetchSectorHistoryByDate,
   fetchSectorHistoryRange,
   fetchSectorTrend,
   fetchSectorAvailableDates,
   triggerSectorSnapshot,
 } from "../api/sector";
 import type {
-  SectorHistoryItem,
-  SectorHistoryDateResponse,
   SectorAggregatedItem,
   SectorHistoryRangeResponse,
   SectorTrendResponse,
@@ -51,65 +46,6 @@ function fmtAmount(v: number | null): string {
   if (Math.abs(v) >= 1_0000) return (v / 1_0000).toFixed(2) + "万";
   return v.toLocaleString();
 }
-
-// ── Single-day columns ──
-const singleDayColumns = [
-  { title: "排名", width: 60, render: (_: unknown, __: unknown, idx: number) => idx + 1 },
-  { title: "板块名称", dataIndex: "name", key: "name", width: 140 },
-  {
-    title: "涨跌幅",
-    dataIndex: "change_pct",
-    key: "change_pct",
-    sorter: (a: SectorHistoryItem, b: SectorHistoryItem) => (a.change_pct ?? 0) - (b.change_pct ?? 0),
-    defaultSortOrder: "descend" as const,
-    render: (v: number | null) => <span style={{ color: pctColor(v) }}>{fmtPct(v)}</span>,
-  },
-  {
-    title: "成交额",
-    dataIndex: "amount",
-    key: "amount",
-    render: (v: number | null) => fmtAmount(v),
-  },
-  {
-    title: "涨/跌/平",
-    key: "counts",
-    render: (_: unknown, r: SectorHistoryItem) =>
-      r.up_count != null ? (
-        <span>
-          <span style={{ color: POSITIVE_COLOR }}>{Math.round(r.up_count)}</span>
-          {" / "}
-          <span style={{ color: NEGATIVE_COLOR }}>{Math.round(r.down_count)}</span>
-          {" / "}
-          {Math.round(r.flat_count ?? 0)}
-        </span>
-      ) : (
-        "--"
-      ),
-  },
-  {
-    title: "领涨股",
-    key: "leading_stock",
-    render: (_: unknown, r: SectorHistoryItem) =>
-      r.leading_stock ? (
-        <>
-          {r.leading_stock}{" "}
-          <span style={{ color: pctColor(r.leading_stock_change_pct), fontSize: 12 }}>
-            {fmtPct(r.leading_stock_change_pct)}
-          </span>
-        </>
-      ) : (
-        "--"
-      ),
-  },
-  {
-    title: "主力净流入",
-    dataIndex: "main_net_inflow",
-    key: "main_net_inflow",
-    sorter: (a: SectorHistoryItem, b: SectorHistoryItem) =>
-      (a.main_net_inflow ?? 0) - (b.main_net_inflow ?? 0),
-    render: (v: number | null) => <span style={{ color: pctColor(v) }}>{fmtAmount(v)}</span>,
-  },
-];
 
 // ── Range aggregated columns ──
 const rangeColumns = [
@@ -153,54 +89,6 @@ const rangeColumns = [
 ];
 
 // ── Chart builders ──
-function buildTrendBarChart(items: SectorHistoryItem[]) {
-  const top5 = items.slice(0, 5);
-  const bottom5 = [...items].reverse().slice(0, 5);
-  const combined = [...top5, ...bottom5.reverse()];
-  return {
-    tooltip: {
-      trigger: "axis" as const,
-      formatter: (params: { name: string; value: number }[]) =>
-        `${params[0].name}<br/>涨跌幅: ${fmtPct(params[0].value)}`,
-    },
-    grid: { left: 100, right: 20, top: 20, bottom: 40 },
-    xAxis: { type: "value" as const, axisLabel: { formatter: (v: number) => `${v}%` } },
-    yAxis: { type: "category" as const, data: combined.map((i) => i.name), inverse: true },
-    series: [
-      {
-        type: "bar" as const,
-        data: combined.map((i) => ({
-          value: i.change_pct ?? 0,
-          itemStyle: { color: (i.change_pct ?? 0) >= 0 ? POSITIVE_COLOR : NEGATIVE_COLOR },
-        })),
-      },
-    ],
-  };
-}
-
-function buildFlowBarChart(items: SectorHistoryItem[]) {
-  const top10 = items.slice(0, 10);
-  return {
-    tooltip: {
-      trigger: "axis" as const,
-      formatter: (params: { name: string; value: number }[]) =>
-        `${params[0].name}<br/>主力净流入: ${fmtAmount(params[0].value)}`,
-    },
-    grid: { left: 100, right: 20, top: 20, bottom: 40 },
-    xAxis: { type: "value" as const, axisLabel: { formatter: (v: number) => fmtAmount(v) } },
-    yAxis: { type: "category" as const, data: top10.map((i) => i.name), inverse: true },
-    series: [
-      {
-        type: "bar" as const,
-        data: top10.map((i) => ({
-          value: i.main_net_inflow ?? 0,
-          itemStyle: { color: (i.main_net_inflow ?? 0) >= 0 ? POSITIVE_COLOR : NEGATIVE_COLOR },
-        })),
-      },
-    ],
-  };
-}
-
 function buildRangeBarChart(sectors: SectorAggregatedItem[]) {
   const top10 = sectors.slice(0, 10);
   const bottom10 = [...sectors].reverse().slice(0, 10);
@@ -269,20 +157,13 @@ function buildTrendLineChart(trend: SectorTrendResponse) {
 }
 
 // ── Main page ──
-type QueryMode = "single" | "range";
 type SectorType = "industry" | "concept";
 
 export default function SectorHistory() {
-  const [queryMode, setQueryMode] = useState<QueryMode>("single");
   const [sectorType, setSectorType] = useState<SectorType>("industry");
 
   // available dates
   const [availableDates, setAvailableDates] = useState<string[]>([]);
-
-  // single-day state
-  const [selectedDate, setSelectedDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
-  const [singleData, setSingleData] = useState<SectorHistoryDateResponse | null>(null);
-  const [singleTab, setSingleTab] = useState<string>("trend");
 
   // range state
   const [dateRange, setDateRange] = useState<[string, string]>([
@@ -303,28 +184,13 @@ export default function SectorHistory() {
       const res = await fetchSectorAvailableDates(sectorType);
       setAvailableDates(res.dates);
     } catch {
-      // silent - dates will be empty
+      // silent
     }
   }, [sectorType]);
 
   useEffect(() => {
     loadDates();
   }, [loadDates]);
-
-  // load single-day data
-  const loadSingleData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetchSectorHistoryByDate(selectedDate, sectorType);
-      setSingleData(res);
-    } catch {
-      setError("查询历史数据失败");
-      setSingleData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedDate, sectorType]);
 
   // load range data
   const loadRangeData = useCallback(async () => {
@@ -333,7 +199,6 @@ export default function SectorHistory() {
     try {
       const res = await fetchSectorHistoryRange(dateRange[0], dateRange[1], sectorType);
       setRangeData(res);
-      // auto-select first sector for trend
       if (res.sectors.length > 0 && !trendCode) {
         setTrendCode(res.sectors[0].code);
       }
@@ -356,21 +221,19 @@ export default function SectorHistory() {
     }
   }, [trendCode, sectorType, dateRange]);
 
-  // initial load when mode/type changes
+  // initial load when type changes
   useEffect(() => {
-    if (queryMode === "single" && selectedDate) {
-      loadSingleData();
-    } else if (queryMode === "range" && dateRange[0] && dateRange[1]) {
+    if (dateRange[0] && dateRange[1]) {
       loadRangeData();
     }
-  }, [queryMode, sectorType]);
+  }, [sectorType]);
 
   // load trend when code or range changes
   useEffect(() => {
-    if (queryMode === "range" && trendCode) {
+    if (trendCode) {
       loadTrendData();
     }
-  }, [trendCode, queryMode]);
+  }, [trendCode]);
 
   const handleSnapshot = async () => {
     setSnapshotLoading(true);
@@ -379,8 +242,7 @@ export default function SectorHistory() {
       if (res.success) {
         message.success(`快照成功：行业 ${res.industry_count} 个，概念 ${res.concept_count} 个`);
         loadDates();
-        if (queryMode === "single") loadSingleData();
-        else loadRangeData();
+        loadRangeData();
       } else {
         message.error(res.message);
       }
@@ -392,83 +254,7 @@ export default function SectorHistory() {
   };
 
   const handleQuery = () => {
-    if (queryMode === "single") loadSingleData();
-    else loadRangeData();
-  };
-
-  const sectorOptions = sectorType === "industry" ? "行业板块" : "概念板块";
-
-  // ── Render single-day mode ──
-  const renderSingleMode = () => {
-    if (!singleData) {
-      return availableDates.length === 0 ? (
-        <Empty description="暂无历史数据，请先进行数据快照">
-          <Button type="primary" onClick={handleSnapshot} loading={snapshotLoading}>
-            立即快照
-          </Button>
-        </Empty>
-      ) : null;
-    }
-
-    const items = [...singleData.items].sort((a, b) => (b.change_pct ?? 0) - (a.change_pct ?? 0));
-    const flowSorted = [...singleData.items].sort(
-      (a, b) => (b.main_net_inflow ?? 0) - (a.main_net_inflow ?? 0)
-    );
-
-    const tabItems = [
-      {
-        key: "trend",
-        label: "涨跌排名",
-        children: (
-          <>
-            <ReactECharts
-              option={buildTrendBarChart(items)}
-              style={{ height: 320, marginBottom: 16 }}
-              notMerge
-              lazyUpdate
-            />
-            <Table
-              dataSource={items}
-              columns={singleDayColumns}
-              rowKey="code"
-              size="small"
-              pagination={{ pageSize: 15, showSizeChanger: false }}
-              scroll={{ x: 900 }}
-            />
-          </>
-        ),
-      },
-      {
-        key: "flow",
-        label: "资金流向",
-        children: (
-          <>
-            <ReactECharts
-              option={buildFlowBarChart(flowSorted)}
-              style={{ height: 320, marginBottom: 16 }}
-              notMerge
-              lazyUpdate
-            />
-            <Table
-              dataSource={flowSorted}
-              columns={singleDayColumns}
-              rowKey="code"
-              size="small"
-              pagination={{ pageSize: 15, showSizeChanger: false }}
-              scroll={{ x: 900 }}
-            />
-          </>
-        ),
-      },
-    ];
-
-    return (
-      <Tabs
-        activeKey={singleTab}
-        onChange={setSingleTab}
-        items={tabItems}
-      />
-    );
+    loadRangeData();
   };
 
   // ── Render range mode ──
@@ -574,44 +360,28 @@ export default function SectorHistory() {
 
       {/* Controls */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-        <Segmented
-          options={[
-            { label: "单日查询", value: "single" },
-            { label: "区间统计", value: "range" },
-          ]}
-          value={queryMode}
-          onChange={(v) => setQueryMode(v as QueryMode)}
-        />
-        <Segmented
-          options={[
-            { label: "行业板块", value: "industry" },
-            { label: "概念板块", value: "concept" },
-          ]}
+        <Select
           value={sectorType}
           onChange={(v) => {
             setSectorType(v as SectorType);
-            setSingleData(null);
             setRangeData(null);
             setTrendData(null);
             setTrendCode("");
           }}
+          style={{ width: 120 }}
+          options={[
+            { label: "行业板块", value: "industry" },
+            { label: "概念板块", value: "concept" },
+          ]}
         />
-        {queryMode === "single" ? (
-          <DatePicker
-            value={dayjs(selectedDate)}
-            onChange={(d) => d && setSelectedDate(d.format("YYYY-MM-DD"))}
-            allowClear={false}
-          />
-        ) : (
-          <RangePicker
-            value={[dayjs(dateRange[0]), dayjs(dateRange[1])]}
-            onChange={(dates) => {
-              if (dates && dates[0] && dates[1]) {
-                setDateRange([dates[0].format("YYYY-MM-DD"), dates[1].format("YYYY-MM-DD")]);
-              }
-            }}
-          />
-        )}
+        <RangePicker
+          value={[dayjs(dateRange[0]), dayjs(dateRange[1])]}
+          onChange={(dates) => {
+            if (dates && dates[0] && dates[1]) {
+              setDateRange([dates[0].format("YYYY-MM-DD"), dates[1].format("YYYY-MM-DD")]);
+            }
+          }}
+        />
         <Button
           type="primary"
           icon={<SyncOutlined spin={loading} />}
@@ -628,7 +398,7 @@ export default function SectorHistory() {
       )}
 
       <Spin spinning={loading}>
-        {queryMode === "single" ? renderSingleMode() : renderRangeMode()}
+        {renderRangeMode()}
       </Spin>
     </div>
   );
