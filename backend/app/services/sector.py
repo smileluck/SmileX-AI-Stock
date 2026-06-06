@@ -143,7 +143,84 @@ def _fetch_ths_industry_overview() -> list[dict]:
     return []
 
 
+def _fetch_ths_fund_flow(sector_type: str) -> list[dict]:
+    """Fetch capital flow from THS data.10jqka.com.cn with pagination."""
+    import py_mini_racer
+    from io import StringIO
+    import pandas as pd
+    from akshare.stock_feature.stock_board_industry_ths import _get_file_content_ths
+
+    try:
+        js_code = py_mini_racer.MiniRacer()
+        js_content = _get_file_content_ths("ths.js")
+        js_code.eval(js_content)
+        v_code = js_code.call("v")
+    except Exception:
+        logger.debug("THS JS challenge failed", exc_info=True)
+        return []
+
+    path = "hyzjl" if sector_type == "industry" else "gnzjl"
+    referer = f"http://data.10jqka.com.cn/funds/{path}/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Host": "data.10jqka.com.cn",
+        "Referer": referer,
+        "X-Requested-With": "XMLHttpRequest",
+        "Cookie": f"v={v_code}",
+    }
+
+    all_dfs = []
+    for page in range(1, 20):
+        url = f"http://data.10jqka.com.cn/funds/{path}/field/tradezdf/order/desc/page/{page}/ajax/1/free/1/"
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+            if r.status_code != 200 or len(r.text) < 100:
+                break
+            tables = pd.read_html(StringIO(r.text))
+            if not tables or tables[0].shape[0] == 0:
+                break
+            all_dfs.append(tables[0])
+        except Exception:
+            break
+
+    if not all_dfs:
+        return []
+
+    df = pd.concat(all_dfs, ignore_index=True)
+    # Columns: 序号, 行业, 行业指数, 涨跌幅, 流入资金(亿), 流出资金(亿), 净额(亿),
+    #          公司家数, 领涨股, 涨跌幅.1, 当前价(元)
+    results = []
+    for _, row in df.iterrows():
+        name = str(row.get("行业", ""))
+        inflow = _parse_float(row.get("流入资金(亿)"))
+        outflow = _parse_float(row.get("流出资金(亿)"))
+        net = _parse_float(row.get("净额(亿)"))
+        pct_str = str(row.get("涨跌幅", ""))
+        pct = _round2(_parse_float(pct_str.replace("%", "")))
+
+        # net is in 亿, convert to 元 for consistency with EM data
+        net_yuan = net * 1e8 if net is not None else None
+
+        results.append({
+            "code": "",
+            "name": name,
+            "change_pct": pct,
+            "main_net_inflow": net_yuan,
+            "main_net_inflow_pct": None,
+            "super_large_net": None,
+            "large_net": None,
+            "medium_net": None,
+            "small_net": None,
+        })
+    logger.info("THS fund flow (%s): %d items", sector_type, len(results))
+    return results
+
+
 def _fetch_ths_industry_capital_flow() -> list[dict]:
+    data = _fetch_ths_fund_flow("industry")
+    if data:
+        return data
+    # Fallback to overview data (has 净流入 but no breakdown)
     data = _fetch_ths_industry_overview()
     return [
         {
@@ -159,6 +236,10 @@ def _fetch_ths_industry_capital_flow() -> list[dict]:
         }
         for item in data
     ]
+
+
+def _fetch_ths_concept_capital_flow() -> list[dict]:
+    return _fetch_ths_fund_flow("concept")
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +326,13 @@ def _get_industry_capital_flow() -> list[dict]:
 
 
 def _get_concept_capital_flow() -> list[dict]:
-    # East Money primary
+    # THS primary
+    data = _fetch_ths_concept_capital_flow()
+    if data:
+        logger.info("Concept capital flow from THS (%d items)", len(data))
+        return data
+
+    # East Money fallback
     raw = _fetch_eastmoney(CONCEPT_FS, _CAPITAL_FIELDS)
     if raw:
         logger.info("Concept capital flow from East Money (%d items)", len(raw))
