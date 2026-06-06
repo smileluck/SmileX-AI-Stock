@@ -9,6 +9,7 @@ import pandas as pd
 from app.database import get_connection
 from app.services.market import CN_INDEX_NAMES
 from app.services import llm
+from app.config import MODEL_ANALYSIS
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ def _filter_news_by_impact(news_list: list[dict], target_count: int = 30) -> lis
         )},
         {"role": "user", "content": numbered},
     ]
-    resp = llm.chat(prompt).strip()
+    resp = llm.score_news(prompt).strip()
     results = _parse_prediction_json(resp) if resp.startswith("[") or resp.startswith("{") else None
     if not results:
         m = re.search(r"```json\s*(.*?)\s*```", resp, re.DOTALL)
@@ -324,7 +325,7 @@ def compare_prediction(today_date: str) -> dict | None:
             )},
         ]
 
-        review_text = llm.chat(review_prompt)
+        review_text = llm.analysis_chat(review_prompt)
 
         conn.execute(
             "UPDATE market_analysis SET actual_data=?, review_text=?, status='reviewed', updated_at=? WHERE id=?",
@@ -363,7 +364,7 @@ def generate_daily_analysis(trade_date: str | None = None) -> dict:
         previous_prediction = _row_to_dict(prev_row) if prev_row else None
 
         messages = build_analysis_prompt(context, previous_prediction)
-        response_text = llm.chat(messages)
+        response_text = llm.analysis_chat(messages)
         prediction_summary = _parse_prediction_json(response_text)
 
         analysis_part = response_text
@@ -383,17 +384,17 @@ def generate_daily_analysis(trade_date: str | None = None) -> dict:
                     scored_news=?, model_used=?, status='analyzed', updated_at=?
                 WHERE id=?""",
                 (analysis_part, prediction_part, json.dumps(prediction_summary, ensure_ascii=False),
-                 scored_news_json, "MiniMax-M3", now_str, existing["id"]),
+                 scored_news_json, MODEL_ANALYSIS, now_str, existing["id"]),
             )
         else:
             conn.execute(
                 """INSERT INTO market_analysis
                     (trade_date, analysis_text, prediction_text, prediction_summary,
                      scored_news, model_used, status, created_at, updated_at)
-                VALUES (?,?,?,?,?,'MiniMax-M3','analyzed',?,?)""",
+                VALUES (?,?,?,?,?,?,'analyzed',?,?)""",
                 (trade_date, analysis_part, prediction_part,
                  json.dumps(prediction_summary, ensure_ascii=False),
-                 scored_news_json, now_str, now_str),
+                 scored_news_json, MODEL_ANALYSIS, now_str, now_str),
             )
         conn.commit()
 

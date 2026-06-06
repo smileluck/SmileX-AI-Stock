@@ -1,6 +1,6 @@
 from openai import OpenAI
 
-from app.config import LITELLM_PROXY_URL, LITELLM_MASTER_KEY
+from app.config import LITELLM_PROXY_URL, LITELLM_MASTER_KEY, MODEL_ANALYSIS, MODEL_NEWS_SCORER, MODEL_CHAT
 
 
 def _get_client() -> OpenAI:
@@ -12,14 +12,22 @@ def _get_client() -> OpenAI:
     return OpenAI(**kwargs)
 
 
-def chat(messages: list[dict], model: str = "MiniMax-M3", **kwargs) -> str:
+def chat(messages: list[dict], model: str | None = None, **kwargs) -> str:
     client = _get_client()
     response = client.chat.completions.create(
-        model=model,
+        model=model or MODEL_CHAT,
         messages=messages,
         **kwargs,
     )
     return response.choices[0].message.content
+
+
+def analysis_chat(messages: list[dict], **kwargs) -> str:
+    return chat(messages, model=MODEL_ANALYSIS, **kwargs)
+
+
+def score_news(messages: list[dict], **kwargs) -> str:
+    return chat(messages, model=MODEL_NEWS_SCORER, **kwargs)
 
 
 def test_connection() -> dict:

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from app.database import get_connection
 from app.services import llm
+from app.config import MODEL_ANALYSIS
 
 logger = logging.getLogger(__name__)
 
@@ -210,7 +211,7 @@ def generate_ai_daily_report(trade_date: str | None = None) -> dict:
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ]
-        report_text = llm.chat(messages)
+        report_text = llm.analysis_chat(messages)
 
         if existing:
             conn.execute(
@@ -220,8 +221,8 @@ def generate_ai_daily_report(trade_date: str | None = None) -> dict:
         else:
             conn.execute(
                 "INSERT INTO ai_daily_report (trade_date, report_text, model_used, status, created_at, updated_at) "
-                "VALUES (?,?,'MiniMax-M3','completed',?,?)",
-                (trade_date, report_text, now_str, now_str),
+                "VALUES (?,?,?,'completed',?,?)",
+                (trade_date, report_text, MODEL_ANALYSIS, now_str, now_str),
             )
         conn.commit()
 
