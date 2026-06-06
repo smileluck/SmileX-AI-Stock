@@ -63,6 +63,34 @@ def _fetch_sector_list(fs: str, fields: str) -> list[dict]:
     return []
 
 
+_SNAPSHOT_FIELDS = (
+    "code", "name", "price", "change_pct", "change", "volume", "amount",
+    "up_count", "down_count", "flat_count",
+    "leading_stock", "leading_stock_code", "leading_stock_change_pct",
+    "main_net_inflow", "main_net_inflow_pct",
+    "super_large_net", "large_net", "medium_net", "small_net",
+)
+
+
+def _get_latest_snapshot(sector_type: str) -> list[dict]:
+    """Return items from the latest snapshot as a fallback."""
+    conn = get_connection()
+    try:
+        date_row = conn.execute(
+            "SELECT trade_date FROM sector_snapshot WHERE sector_type = ? AND status = 'ok' ORDER BY trade_date DESC LIMIT 1",
+            (sector_type,),
+        ).fetchone()
+        if not date_row:
+            return []
+        rows = conn.execute(
+            f"SELECT {','.join(_SNAPSHOT_FIELDS)} FROM sector_snapshot_item WHERE trade_date = ? AND sector_type = ? ORDER BY change_pct DESC NULLS LAST",
+            (date_row["trade_date"], sector_type),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def get_sector_overview() -> dict:
     industry_raw = _fetch_sector_list(INDUSTRY_FS, _SECTOR_FIELDS)
     concept_raw = _fetch_sector_list(CONCEPT_FS, _SECTOR_FIELDS)
@@ -84,9 +112,17 @@ def get_sector_overview() -> dict:
             "leading_stock_change_pct": _parse_float(item.get("f136")),
         }
 
+    industry = [_parse_item(i) for i in industry_raw]
+    concept = [_parse_item(i) for i in concept_raw]
+
+    if not industry and not concept:
+        logger.info("Real-time API empty, falling back to latest snapshot")
+        industry = _get_latest_snapshot("industry")
+        concept = _get_latest_snapshot("concept")
+
     return {
-        "industry": [_parse_item(i) for i in industry_raw],
-        "concept": [_parse_item(i) for i in concept_raw],
+        "industry": industry,
+        "concept": concept,
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -108,9 +144,17 @@ def get_sector_capital_flow() -> dict:
             "small_net": _parse_float(item.get("f84")),
         }
 
+    industry = [_parse_item(i) for i in industry_raw]
+    concept = [_parse_item(i) for i in concept_raw]
+
+    if not industry and not concept:
+        logger.info("Real-time capital flow API empty, falling back to latest snapshot")
+        industry = _get_latest_snapshot("industry")
+        concept = _get_latest_snapshot("concept")
+
     return {
-        "industry": [_parse_item(i) for i in industry_raw],
-        "concept": [_parse_item(i) for i in concept_raw],
+        "industry": industry,
+        "concept": concept,
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
