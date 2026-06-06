@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+# force reload
 
 import akshare as ak
 import requests
@@ -112,9 +113,13 @@ def _parse_em_capital_flow(item: dict) -> dict:
 def _fetch_ths_industry_overview() -> list[dict]:
     try:
         df = ak.stock_board_industry_summary_ths()
-        # Columns: 序号, 板块, 涨跌幅, 总成交量, 总成交额, 净流入,
-        #          上涨家数, 下跌家数, 均价, 领涨股, 领涨股-最新价, 领涨股-涨跌幅
         results = []
+        # Debug: check first row
+        if len(df) > 0:
+            r0 = df.iloc[0]
+            raw_jlr = r0.get("净流入")
+            parsed = _parse_float(raw_jlr)
+            logger.warning("DEBUG THS: 净流入 raw=%s parsed=%s type=%s", raw_jlr, parsed, type(raw_jlr).__name__)
         for _, row in df.iterrows():
             results.append({
                 "code": "",
@@ -130,7 +135,7 @@ def _fetch_ths_industry_overview() -> list[dict]:
                 "leading_stock": str(row.get("领涨股", "")),
                 "leading_stock_code": None,
                 "leading_stock_change_pct": _round2(_parse_float(row.get("领涨股-涨跌幅"))),
-                "main_net_inflow": _parse_float(row.get("净流入")),
+                "main_net_inflow": round(_parse_float(row.get("净流入")) * 1e8) if _parse_float(row.get("净流入")) is not None else None,
                 "main_net_inflow_pct": None,
                 "super_large_net": None,
                 "large_net": None,
@@ -199,7 +204,7 @@ def _fetch_ths_fund_flow(sector_type: str) -> list[dict]:
         pct = _round2(_parse_float(pct_str.replace("%", "")))
 
         # net is in 亿, convert to 元 for consistency with EM data
-        net_yuan = net * 1e8 if net is not None else None
+        net_yuan = round(net * 1e8) if net is not None else None
 
         results.append({
             "code": "",
