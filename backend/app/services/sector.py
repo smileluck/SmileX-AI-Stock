@@ -39,6 +39,12 @@ def _parse_float(val) -> float | None:
         return None
 
 
+def _round2(val) -> float | None:
+    if val is None:
+        return None
+    return round(val, 2)
+
+
 # ---------------------------------------------------------------------------
 # Source 1: East Money (东方财富)
 # ---------------------------------------------------------------------------
@@ -72,7 +78,7 @@ def _parse_em_overview(item: dict) -> dict:
         "code": item.get("f12", ""),
         "name": item.get("f14", ""),
         "price": _parse_float(item.get("f2")),
-        "change_pct": _parse_float(item.get("f3")),
+        "change_pct": _round2(_parse_float(item.get("f3"))),
         "change": _parse_float(item.get("f4")),
         "volume": _parse_float(item.get("f5")),
         "amount": _parse_float(item.get("f6")),
@@ -81,7 +87,7 @@ def _parse_em_overview(item: dict) -> dict:
         "flat_count": _parse_float(item.get("f106")),
         "leading_stock": item.get("f140"),
         "leading_stock_code": item.get("f128"),
-        "leading_stock_change_pct": _parse_float(item.get("f136")),
+        "leading_stock_change_pct": _round2(_parse_float(item.get("f136"))),
     }
 
 
@@ -89,9 +95,9 @@ def _parse_em_capital_flow(item: dict) -> dict:
     return {
         "code": item.get("f12", ""),
         "name": item.get("f14", ""),
-        "change_pct": _parse_float(item.get("f3")),
+        "change_pct": _round2(_parse_float(item.get("f3"))),
         "main_net_inflow": _parse_float(item.get("f62")),
-        "main_net_inflow_pct": _parse_float(item.get("f184")),
+        "main_net_inflow_pct": _round2(_parse_float(item.get("f184"))),
         "super_large_net": _parse_float(item.get("f66")),
         "large_net": _parse_float(item.get("f72")),
         "medium_net": _parse_float(item.get("f78")),
@@ -114,7 +120,7 @@ def _fetch_ths_industry_overview() -> list[dict]:
                 "code": "",
                 "name": str(row.get("板块", "")),
                 "price": _parse_float(row.get("均价")),
-                "change_pct": _parse_float(row.get("涨跌幅")),
+                "change_pct": _round2(_parse_float(row.get("涨跌幅"))),
                 "change": None,
                 "volume": _parse_float(row.get("总成交量")),
                 "amount": _parse_float(row.get("总成交额")),
@@ -123,7 +129,7 @@ def _fetch_ths_industry_overview() -> list[dict]:
                 "flat_count": None,
                 "leading_stock": str(row.get("领涨股", "")),
                 "leading_stock_code": None,
-                "leading_stock_change_pct": _parse_float(row.get("领涨股-涨跌幅")),
+                "leading_stock_change_pct": _round2(_parse_float(row.get("领涨股-涨跌幅"))),
                 "main_net_inflow": _parse_float(row.get("净流入")),
                 "main_net_inflow_pct": None,
                 "super_large_net": None,
@@ -172,7 +178,10 @@ def _get_latest_snapshot(sector_type: str) -> list[dict]:
             f"SELECT {','.join(_SNAPSHOT_FIELDS)} FROM sector_snapshot_item WHERE trade_date = ? AND sector_type = ? ORDER BY change_pct DESC NULLS LAST",
             (date_row["trade_date"], sector_type),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [
+            {**dict(r), "change_pct": _round2(r["change_pct"]), "leading_stock_change_pct": _round2(r["leading_stock_change_pct"])}
+            for r in rows
+        ]
     finally:
         conn.close()
 
@@ -364,7 +373,7 @@ def get_sector_history_by_date(trade_date: str, sector_type: str) -> dict:
                ORDER BY change_pct DESC NULLS LAST""",
             (trade_date, sector_type),
         ).fetchall()
-        items = [dict(r) for r in rows]
+        items = [{**dict(r), "change_pct": _round2(r["change_pct"]), "leading_stock_change_pct": _round2(r["leading_stock_change_pct"])} for r in rows]
         return {
             "trade_date": trade_date,
             "sector_type": sector_type,
@@ -392,7 +401,7 @@ def get_sector_history_range(start_date: str, end_date: str, sector_type: str) -
                ORDER BY avg_change_pct DESC NULLS LAST""",
             (start_date, end_date, sector_type),
         ).fetchall()
-        sectors = [dict(r) for r in rows]
+        sectors = [{**dict(r), "avg_change_pct": _round2(r["avg_change_pct"]), "best_change_pct": _round2(r["best_change_pct"]), "worst_change_pct": _round2(r["worst_change_pct"])} for r in rows]
         return {
             "start_date": start_date,
             "end_date": end_date,
@@ -423,7 +432,7 @@ def get_sector_trend(code: str, sector_type: str, start_date: str, end_date: str
             "code": code,
             "name": name,
             "sector_type": sector_type,
-            "data": [dict(r) for r in rows],
+            "data": [{**dict(r), "change_pct": _round2(r["change_pct"])} for r in rows],
         }
     finally:
         conn.close()
