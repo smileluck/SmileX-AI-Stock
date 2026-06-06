@@ -57,6 +57,13 @@ class PredictionSummary(BaseModel):
     risk_level: str
 
 
+class ScoredNewsItem(BaseModel):
+    title: str
+    source: str
+    impact_score: int = 5
+    impact_category: str = "其他"
+
+
 class MarketAnalysisItem(BaseModel):
     id: int
     trade_date: str
@@ -65,6 +72,7 @@ class MarketAnalysisItem(BaseModel):
     prediction_summary: dict
     actual_data: dict
     review_text: str
+    scored_news: list[ScoredNewsItem] = []
     model_used: str
     status: str
     created_at: str

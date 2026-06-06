@@ -161,6 +161,13 @@ export interface ActualData {
   fetch_time: string;
 }
 
+export interface ScoredNewsItem {
+  title: string;
+  source: string;
+  impact_score: number;
+  impact_category: string;
+}
+
 export interface MarketAnalysisItem {
   id: number;
   trade_date: string;
@@ -169,6 +176,7 @@ export interface MarketAnalysisItem {
   prediction_summary: PredictionSummary;
   actual_data: ActualData;
   review_text: string;
+  scored_news: ScoredNewsItem[];
   model_used: string;
   status: "pending" | "analyzed" | "reviewed";
   created_at: string;

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS market_analysis (
     prediction_summary  TEXT NOT NULL DEFAULT '{}',
     actual_data         TEXT NOT NULL DEFAULT '{}',
     review_text         TEXT NOT NULL DEFAULT '',
+    scored_news         TEXT NOT NULL DEFAULT '[]',
     model_used          TEXT NOT NULL DEFAULT '',
     status              TEXT NOT NULL DEFAULT 'pending',
     created_at          TEXT NOT NULL,
@@ -108,7 +109,18 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+_MIGRATIONS = [
+    "ALTER TABLE market_analysis ADD COLUMN scored_news TEXT NOT NULL DEFAULT '[]'",
+]
+
+
 def init_db():
     conn = get_connection()
     conn.executescript(_SCHEMA)
+    for sql in _MIGRATIONS:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass
+    conn.commit()
     conn.close()

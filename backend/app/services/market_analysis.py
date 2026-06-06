@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import akshare as ak
 import pandas as pd
@@ -62,21 +62,87 @@ def _row_to_dict(row) -> dict:
     d = dict(row)
     d["prediction_summary"] = json.loads(d.get("prediction_summary") or "{}")
     d["actual_data"] = json.loads(d.get("actual_data") or "{}")
+    d["scored_news"] = json.loads(d.get("scored_news") or "[]")
     return d
 
 
+def _get_friday_before_weekend(date_str: str) -> str | None:
+    """Return the Friday date if date_str is Saturday or Sunday, else None."""
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    if dt.weekday() == 5:  # Saturday
+        return (dt - timedelta(days=1)).strftime("%Y-%m-%d")
+    if dt.weekday() == 6:  # Sunday
+        return (dt - timedelta(days=2)).strftime("%Y-%m-%d")
+    return None
+
+
+def _filter_news_by_impact(news_list: list[dict], target_count: int = 30) -> list[dict]:
+    """Use LLM to score and rank news by A-share impact. Returns top N with score and category."""
+    if not news_list:
+        return []
+
+    numbered = "\n".join(f"{i+1}. [{n['source']}] {n['title']}" for i, n in enumerate(news_list))
+    prompt = [
+        {"role": "system", "content": (
+            "你是一位资深A股市场分析师。以下是多条财经新闻标题，请评估每条新闻对A股市场的影响力。\n\n"
+            "评分标准（0-10分）：\n"
+            "- 9-10分：对A股有重大直接冲击（如央行政策、重大经济数据超预期、外围市场暴跌暴涨、重大地缘事件）\n"
+            "- 7-8分：对A股有较大影响（如行业重磅政策、重要宏观数据、美股大幅波动、北向资金大幅变动）\n"
+            "- 5-6分：有一定影响（如行业利好/利空、个股重大事件、区域经济政策）\n"
+            "- 3-4分：影响较小（如一般行业动态、普通公司公告）\n"
+            "- 1-2分：几乎无影响\n\n"
+            "分类标签：政策变动 / 宏观经济 / 外围市场 / 行业动态 / 资金面 / 公司事件 / 其他\n\n"
+            f"请选出影响值最高的{target_count}条，按影响力从高到低排序，以JSON数组格式返回。格式如下：\n"
+            "```json\n"
+            '[{"index": 1, "score": 9, "category": "外围市场"}]\n'
+            "```\n"
+            "只返回JSON数组，不要其他内容。"
+        )},
+        {"role": "user", "content": numbered},
+    ]
+    resp = llm.chat(prompt).strip()
+    results = _parse_prediction_json(resp) if resp.startswith("[") or resp.startswith("{") else None
+    if not results:
+        m = re.search(r"```json\s*(.*?)\s*```", resp, re.DOTALL)
+        if m:
+            try:
+                results = json.loads(m.group(1))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    if not results or not isinstance(results, list):
+        return news_list[:target_count]
+
+    scored = []
+    for item in results:
+        idx = item.get("index", 0) - 1
+        if 0 <= idx < len(news_list):
+            scored.append({
+                **news_list[idx],
+                "impact_score": item.get("score", 5),
+                "impact_category": item.get("category", "其他"),
+            })
+    scored.sort(key=lambda x: x.get("impact_score", 0), reverse=True)
+    return scored[:target_count]
+
+
 def get_today_market_context(date_str: str) -> dict:
+    friday_str = _get_friday_before_weekend(date_str)
+    is_weekend = friday_str is not None
+
+    # Index data: use Friday's data on weekends
+    market_date = friday_str or date_str
     cn_data = []
     for code, name in CN_INDEX_NAMES.items():
         try:
             df = ak.stock_zh_index_daily(symbol=code)
             df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
-            day = df[df["date"] == date_str]
+            day = df[df["date"] == market_date]
             if day.empty:
                 last5 = df.sort_values("date").tail(5)
                 cn_data.append({
                     "code": code, "name": name,
-                    "note": f"{date_str} 无数据，最近5日: {last5[['date','close','volume']].to_string(index=False)}",
+                    "note": f"{market_date} 无数据，最近5日: {last5[['date','close','volume']].to_string(index=False)}",
                 })
             else:
                 row = day.iloc[0]
@@ -89,23 +155,45 @@ def get_today_market_context(date_str: str) -> dict:
         except Exception:
             logger.warning("获取 %s 历史数据失败", code, exc_info=True)
 
+    # News: expand date range on weekends (Friday through today)
     recent_news = []
     conn = get_connection()
     try:
-        rows = conn.execute(
-            "SELECT title, source FROM news WHERE date(publish_time) = ? ORDER BY publish_time DESC LIMIT 30",
-            (date_str,),
-        ).fetchall()
+        if is_weekend:
+            rows = conn.execute(
+                "SELECT title, source FROM news WHERE date(publish_time) BETWEEN ? AND ? ORDER BY publish_time DESC",
+                (friday_str, date_str),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT title, source FROM news WHERE date(publish_time) = ? ORDER BY publish_time DESC LIMIT 30",
+                (date_str,),
+            ).fetchall()
         recent_news = [{"title": r["title"], "source": r["source"]} for r in rows]
     finally:
         conn.close()
+
+    if is_weekend and len(recent_news) > 30:
+        logger.info("周末模式：从 %d 条新闻中筛选影响值最高的 30 条", len(recent_news))
+        recent_news = _filter_news_by_impact(recent_news, 30)
+
+    # Always score news when we have enough for meaningful ranking
+    scored_news = []
+    if len(recent_news) >= 5:
+        scored_news = _filter_news_by_impact(recent_news, 30)
+        # Ensure all items have score/category (in case scoring was skipped)
+        for item in scored_news:
+            item.setdefault("impact_score", 5)
+            item.setdefault("impact_category", "其他")
+    else:
+        scored_news = recent_news
 
     trend_data = {}
     for code, name in CN_INDEX_NAMES.items():
         try:
             df = ak.stock_zh_index_daily(symbol=code)
             df["date"] = pd.to_datetime(df["date"])
-            df = df[df["date"] < date_str].sort_values("date").tail(5)
+            df = df[df["date"] < market_date].sort_values("date").tail(5)
             if not df.empty:
                 trend_data[code] = {
                     "name": name,
@@ -114,11 +202,19 @@ def get_today_market_context(date_str: str) -> dict:
         except Exception:
             pass
 
-    return {"cn_data": cn_data, "recent_news": recent_news, "trend_data": trend_data, "date": date_str}
+    return {"cn_data": cn_data, "recent_news": recent_news, "scored_news": scored_news, "trend_data": trend_data, "date": date_str, "is_weekend": is_weekend, "friday": friday_str}
 
 
 def build_analysis_prompt(context: dict, previous_prediction: dict | None = None) -> list[dict]:
-    lines = [f"=== {context['date']} A股市场数据 ==="]
+    is_weekend = context.get("is_weekend", False)
+    friday = context.get("friday")
+
+    if is_weekend:
+        lines = [f"=== 当前日期: {context['date']}（周末休市） ==="]
+        lines.append(f"以下为周五({friday})收盘数据，请结合周五以来的资讯预测下周一开盘走势。")
+    else:
+        lines = [f"=== {context['date']} A股市场数据 ==="]
+
     for item in context["cn_data"]:
         if "close" in item:
             change_pct = ((item["close"] - item["open"]) / item["open"] * 100) if item["open"] else 0
@@ -136,9 +232,17 @@ def build_analysis_prompt(context: dict, previous_prediction: dict | None = None
             closes = " -> ".join(f"{r['close']:.2f}" for r in recs)
             lines.append(f"{td['name']}: {closes}")
 
-    if context["recent_news"]:
-        lines.append(f"\n=== 当日相关新闻({len(context['recent_news'])}条) ===")
-        for n in context["recent_news"][:20]:
+    if context.get("scored_news"):
+        date_label = f"{friday}~{context['date']}周末资讯" if is_weekend else "当日相关新闻"
+        lines.append(f"\n=== {date_label}影响力排行({len(context['scored_news'])}条) ===")
+        for n in context["scored_news"]:
+            score = n.get("impact_score", "?")
+            cat = n.get("impact_category", "")
+            lines.append(f"[影响力:{score}/10 | {cat}] [{n['source']}] {n['title']}")
+    elif context["recent_news"]:
+        date_label = f"{friday}~{context['date']}周末资讯" if is_weekend else "当日相关新闻"
+        lines.append(f"\n=== {date_label}({len(context['recent_news'])}条) ===")
+        for n in context["recent_news"][:30]:
             lines.append(f"[{n['source']}] {n['title']}")
 
     if previous_prediction:
@@ -270,22 +374,26 @@ def generate_daily_analysis(trade_date: str | None = None) -> dict:
             analysis_part = response_text[:boundary].strip()
             prediction_part = response_text[boundary:].strip()
 
+        scored_news_json = json.dumps(context.get("scored_news", []), ensure_ascii=False)
+
         if existing:
             conn.execute(
                 """UPDATE market_analysis SET
                     analysis_text=?, prediction_text=?, prediction_summary=?,
-                    model_used=?, status='analyzed', updated_at=?
+                    scored_news=?, model_used=?, status='analyzed', updated_at=?
                 WHERE id=?""",
                 (analysis_part, prediction_part, json.dumps(prediction_summary, ensure_ascii=False),
-                 "MiniMax-M3", now_str, existing["id"]),
+                 scored_news_json, "MiniMax-M3", now_str, existing["id"]),
             )
         else:
             conn.execute(
                 """INSERT INTO market_analysis
-                    (trade_date, analysis_text, prediction_text, prediction_summary, model_used, status, created_at, updated_at)
-                VALUES (?,?,?,?,'MiniMax-M3','analyzed',?,?)""",
+                    (trade_date, analysis_text, prediction_text, prediction_summary,
+                     scored_news, model_used, status, created_at, updated_at)
+                VALUES (?,?,?,?,?,'MiniMax-M3','analyzed',?,?)""",
                 (trade_date, analysis_part, prediction_part,
-                 json.dumps(prediction_summary, ensure_ascii=False), now_str, now_str),
+                 json.dumps(prediction_summary, ensure_ascii=False),
+                 scored_news_json, now_str, now_str),
             )
         conn.commit()
 

@@ -8,7 +8,7 @@ import {
 import dayjs from "dayjs";
 import { fetchLatestAnalysis, fetchAnalysisHistory, triggerAnalysis } from "../api/marketAnalysis";
 import { fetchLatestReport, fetchReportHistory, triggerReport } from "../api/aiDailyReport";
-import type { MarketAnalysisItem, AiDailyReportItem } from "../types";
+import type { MarketAnalysisItem, AiDailyReportItem, ScoredNewsItem } from "../types";
 
 const INDEX_NAMES: Record<string, string> = {
   sh000001: "上证指数", sz399001: "深证成指", sz399006: "创业板指",
@@ -187,6 +187,50 @@ function DailyAnalysisTab() {
                 {latest.analysis_text || "暂无分析内容"}
               </Typography.Paragraph>
             </Card>
+
+            {latest.scored_news && latest.scored_news.length > 0 && (
+              <Card title="📰 资讯影响力排行" style={{ marginBottom: 16 }}>
+                <Table<ScoredNewsItem>
+                  size="small"
+                  pagination={false}
+                  dataSource={latest.scored_news}
+                  rowKey={(_, i) => String(i)}
+                  columns={[
+                    {
+                      title: "排名", key: "rank", width: 50,
+                      render: (_: unknown, __: unknown, i: number) => (
+                        <span style={{ fontWeight: i < 3 ? "bold" : "normal", color: i < 3 ? "#cf1322" : undefined }}>{i + 1}</span>
+                      ),
+                    },
+                    {
+                      title: "影响力", dataIndex: "impact_score", key: "score", width: 100,
+                      render: (v: number) => {
+                        const color = v >= 8 ? "#cf1322" : v >= 6 ? "#fa8c16" : v >= 4 ? "#faad14" : "#d9d9d9";
+                        return <span style={{ color, fontWeight: "bold" }}>{v}/10</span>;
+                      },
+                      sorter: (a: ScoredNewsItem, b: ScoredNewsItem) => a.impact_score - b.impact_score,
+                      defaultSortOrder: "descend",
+                    },
+                    {
+                      title: "分类", dataIndex: "impact_category", key: "cat", width: 100,
+                      render: (v: string) => {
+                        const catColors: Record<string, string> = {
+                          "政策变动": "red", "宏观经济": "purple", "外围市场": "blue",
+                          "行业动态": "cyan", "资金面": "gold", "公司事件": "geekblue",
+                        };
+                        return <Tag color={catColors[v] || "default"}>{v}</Tag>;
+                      },
+                    },
+                    {
+                      title: "来源", dataIndex: "source", key: "source", width: 90,
+                    },
+                    {
+                      title: "标题", dataIndex: "title", key: "title",
+                    },
+                  ]}
+                />
+              </Card>
+            )}
 
             {summary && (
               <Card title="🔮 次日预测" style={{ marginBottom: 16 }}>
