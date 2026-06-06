@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 
+import akshare as ak
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -14,14 +15,19 @@ _EASTMONEY_HEADERS = {
     "Referer": "https://quote.eastmoney.com/",
 }
 
-# East Money board type parameters
-# fs=m:90+t:2  -> 行业板块
-# fs=m:90+t:3  -> 概念板块
 INDUSTRY_FS = "m:90+t:2"
 CONCEPT_FS = "m:90+t:3"
 
 _SECTOR_FIELDS = "f2,f3,f4,f5,f6,f12,f14,f104,f105,f106,f128,f140,f141,f136"
 _CAPITAL_FIELDS = "f2,f3,f12,f14,f62,f66,f72,f78,f84,f184,f184"
+
+_SNAPSHOT_FIELDS = (
+    "code", "name", "price", "change_pct", "change", "volume", "amount",
+    "up_count", "down_count", "flat_count",
+    "leading_stock", "leading_stock_code", "leading_stock_change_pct",
+    "main_net_inflow", "main_net_inflow_pct",
+    "super_large_net", "large_net", "medium_net", "small_net",
+)
 
 
 def _parse_float(val) -> float | None:
@@ -33,7 +39,11 @@ def _parse_float(val) -> float | None:
         return None
 
 
-def _fetch_sector_list(fs: str, fields: str) -> list[dict]:
+# ---------------------------------------------------------------------------
+# Source 1: East Money (东方财富)
+# ---------------------------------------------------------------------------
+
+def _fetch_eastmoney(fs: str, fields: str) -> list[dict]:
     session = requests.Session()
     retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
     session.mount("https://", HTTPAdapter(max_retries=retry))
@@ -41,15 +51,9 @@ def _fetch_sector_list(fs: str, fields: str) -> list[dict]:
         r = session.get(
             "http://push2.eastmoney.com/api/qt/clist/get",
             params={
-                "pn": 1,
-                "pz": 200,
-                "po": 1,
-                "np": 1,
-                "fltt": 2,
-                "invt": 2,
-                "fid": "f3",
-                "fs": fs,
-                "fields": fields,
+                "pn": 1, "pz": 500, "po": 1, "np": 1,
+                "fltt": 2, "invt": 2, "fid": "f3",
+                "fs": fs, "fields": fields,
             },
             timeout=10,
             headers=_EASTMONEY_HEADERS,
@@ -59,21 +63,103 @@ def _fetch_sector_list(fs: str, fields: str) -> list[dict]:
         if data.get("data") and data["data"].get("diff"):
             return data["data"]["diff"]
     except Exception:
-        logger.warning("Failed to fetch sector list (fs=%s)", fs, exc_info=True)
+        logger.debug("East Money fetch failed (fs=%s)", fs, exc_info=True)
     return []
 
 
-_SNAPSHOT_FIELDS = (
-    "code", "name", "price", "change_pct", "change", "volume", "amount",
-    "up_count", "down_count", "flat_count",
-    "leading_stock", "leading_stock_code", "leading_stock_change_pct",
-    "main_net_inflow", "main_net_inflow_pct",
-    "super_large_net", "large_net", "medium_net", "small_net",
-)
+def _parse_em_overview(item: dict) -> dict:
+    return {
+        "code": item.get("f12", ""),
+        "name": item.get("f14", ""),
+        "price": _parse_float(item.get("f2")),
+        "change_pct": _parse_float(item.get("f3")),
+        "change": _parse_float(item.get("f4")),
+        "volume": _parse_float(item.get("f5")),
+        "amount": _parse_float(item.get("f6")),
+        "up_count": _parse_float(item.get("f104")),
+        "down_count": _parse_float(item.get("f105")),
+        "flat_count": _parse_float(item.get("f106")),
+        "leading_stock": item.get("f140"),
+        "leading_stock_code": item.get("f128"),
+        "leading_stock_change_pct": _parse_float(item.get("f136")),
+    }
 
+
+def _parse_em_capital_flow(item: dict) -> dict:
+    return {
+        "code": item.get("f12", ""),
+        "name": item.get("f14", ""),
+        "change_pct": _parse_float(item.get("f3")),
+        "main_net_inflow": _parse_float(item.get("f62")),
+        "main_net_inflow_pct": _parse_float(item.get("f184")),
+        "super_large_net": _parse_float(item.get("f66")),
+        "large_net": _parse_float(item.get("f72")),
+        "medium_net": _parse_float(item.get("f78")),
+        "small_net": _parse_float(item.get("f84")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Source 2: THS via akshare (同花顺)
+# ---------------------------------------------------------------------------
+
+def _fetch_ths_industry_overview() -> list[dict]:
+    try:
+        df = ak.stock_board_industry_summary_ths()
+        # Columns: 序号, 板块, 涨跌幅, 总成交量, 总成交额, 净流入,
+        #          上涨家数, 下跌家数, 均价, 领涨股, 领涨股-最新价, 领涨股-涨跌幅
+        results = []
+        for _, row in df.iterrows():
+            results.append({
+                "code": "",
+                "name": str(row.get("板块", "")),
+                "price": _parse_float(row.get("均价")),
+                "change_pct": _parse_float(row.get("涨跌幅")),
+                "change": None,
+                "volume": _parse_float(row.get("总成交量")),
+                "amount": _parse_float(row.get("总成交额")),
+                "up_count": _parse_float(row.get("上涨家数")),
+                "down_count": _parse_float(row.get("下跌家数")),
+                "flat_count": None,
+                "leading_stock": str(row.get("领涨股", "")),
+                "leading_stock_code": None,
+                "leading_stock_change_pct": _parse_float(row.get("领涨股-涨跌幅")),
+                "main_net_inflow": _parse_float(row.get("净流入")),
+                "main_net_inflow_pct": None,
+                "super_large_net": None,
+                "large_net": None,
+                "medium_net": None,
+                "small_net": None,
+            })
+        return results
+    except Exception:
+        logger.debug("THS industry fetch failed", exc_info=True)
+    return []
+
+
+def _fetch_ths_industry_capital_flow() -> list[dict]:
+    data = _fetch_ths_industry_overview()
+    return [
+        {
+            "code": item["code"],
+            "name": item["name"],
+            "change_pct": item["change_pct"],
+            "main_net_inflow": item["main_net_inflow"],
+            "main_net_inflow_pct": item["main_net_inflow_pct"],
+            "super_large_net": item["super_large_net"],
+            "large_net": item["large_net"],
+            "medium_net": item["medium_net"],
+            "small_net": item["small_net"],
+        }
+        for item in data
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Source 3: DB snapshot fallback
+# ---------------------------------------------------------------------------
 
 def _get_latest_snapshot(sector_type: str) -> list[dict]:
-    """Return items from the latest snapshot as a fallback."""
     conn = get_connection()
     try:
         date_row = conn.execute(
@@ -91,70 +177,94 @@ def _get_latest_snapshot(sector_type: str) -> list[dict]:
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Unified getters with fallback chain: THS -> East Money -> DB snapshot
+# ---------------------------------------------------------------------------
+
+def _get_industry_overview() -> list[dict]:
+    # THS primary
+    data = _fetch_ths_industry_overview()
+    if data:
+        logger.info("Industry overview from THS (%d items)", len(data))
+        return data
+
+    # East Money fallback
+    raw = _fetch_eastmoney(INDUSTRY_FS, _SECTOR_FIELDS)
+    if raw:
+        logger.info("Industry overview from East Money (%d items)", len(raw))
+        return [_parse_em_overview(i) for i in raw]
+
+    # DB fallback
+    data = _get_latest_snapshot("industry")
+    if data:
+        logger.info("Industry overview from DB snapshot (%d items)", len(data))
+    return data
+
+
+def _get_concept_overview() -> list[dict]:
+    # East Money primary (THS has no bulk concept summary)
+    raw = _fetch_eastmoney(CONCEPT_FS, _SECTOR_FIELDS)
+    if raw:
+        logger.info("Concept overview from East Money (%d items)", len(raw))
+        return [_parse_em_overview(i) for i in raw]
+
+    # DB fallback
+    data = _get_latest_snapshot("concept")
+    if data:
+        logger.info("Concept overview from DB snapshot (%d items)", len(data))
+    return data
+
+
+def _get_industry_capital_flow() -> list[dict]:
+    # THS primary
+    data = _fetch_ths_industry_capital_flow()
+    if data:
+        logger.info("Industry capital flow from THS (%d items)", len(data))
+        return data
+
+    # East Money fallback
+    raw = _fetch_eastmoney(INDUSTRY_FS, _CAPITAL_FIELDS)
+    if raw:
+        logger.info("Industry capital flow from East Money (%d items)", len(raw))
+        return [_parse_em_capital_flow(i) for i in raw]
+
+    # DB fallback
+    data = _get_latest_snapshot("industry")
+    if data:
+        logger.info("Industry capital flow from DB snapshot (%d items)", len(data))
+    return data
+
+
+def _get_concept_capital_flow() -> list[dict]:
+    # East Money primary
+    raw = _fetch_eastmoney(CONCEPT_FS, _CAPITAL_FIELDS)
+    if raw:
+        logger.info("Concept capital flow from East Money (%d items)", len(raw))
+        return [_parse_em_capital_flow(i) for i in raw]
+
+    # DB fallback
+    data = _get_latest_snapshot("concept")
+    if data:
+        logger.info("Concept capital flow from DB snapshot (%d items)", len(data))
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def get_sector_overview() -> dict:
-    industry_raw = _fetch_sector_list(INDUSTRY_FS, _SECTOR_FIELDS)
-    concept_raw = _fetch_sector_list(CONCEPT_FS, _SECTOR_FIELDS)
-
-    def _parse_item(item: dict) -> dict:
-        return {
-            "code": item.get("f12", ""),
-            "name": item.get("f14", ""),
-            "price": _parse_float(item.get("f2")),
-            "change_pct": _parse_float(item.get("f3")),
-            "change": _parse_float(item.get("f4")),
-            "volume": _parse_float(item.get("f5")),
-            "amount": _parse_float(item.get("f6")),
-            "up_count": _parse_float(item.get("f104")),
-            "down_count": _parse_float(item.get("f105")),
-            "flat_count": _parse_float(item.get("f106")),
-            "leading_stock": item.get("f140"),
-            "leading_stock_code": item.get("f128"),
-            "leading_stock_change_pct": _parse_float(item.get("f136")),
-        }
-
-    industry = [_parse_item(i) for i in industry_raw]
-    concept = [_parse_item(i) for i in concept_raw]
-
-    if not industry and not concept:
-        logger.info("Real-time API empty, falling back to latest snapshot")
-        industry = _get_latest_snapshot("industry")
-        concept = _get_latest_snapshot("concept")
-
     return {
-        "industry": industry,
-        "concept": concept,
+        "industry": _get_industry_overview(),
+        "concept": _get_concept_overview(),
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 
 def get_sector_capital_flow() -> dict:
-    industry_raw = _fetch_sector_list(INDUSTRY_FS, _CAPITAL_FIELDS)
-    concept_raw = _fetch_sector_list(CONCEPT_FS, _CAPITAL_FIELDS)
-
-    def _parse_item(item: dict) -> dict:
-        return {
-            "code": item.get("f12", ""),
-            "name": item.get("f14", ""),
-            "change_pct": _parse_float(item.get("f3")),
-            "main_net_inflow": _parse_float(item.get("f62")),
-            "main_net_inflow_pct": _parse_float(item.get("f184")),
-            "super_large_net": _parse_float(item.get("f66")),
-            "large_net": _parse_float(item.get("f72")),
-            "medium_net": _parse_float(item.get("f78")),
-            "small_net": _parse_float(item.get("f84")),
-        }
-
-    industry = [_parse_item(i) for i in industry_raw]
-    concept = [_parse_item(i) for i in concept_raw]
-
-    if not industry and not concept:
-        logger.info("Real-time capital flow API empty, falling back to latest snapshot")
-        industry = _get_latest_snapshot("industry")
-        concept = _get_latest_snapshot("concept")
-
     return {
-        "industry": industry,
-        "concept": concept,
+        "industry": _get_industry_capital_flow(),
+        "concept": _get_concept_capital_flow(),
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -182,8 +292,13 @@ def snapshot_sector_data(trade_date: str | None = None, trigger: str = "manual")
                 result[f"{sector_type}_count"] = row["item_count"]
                 continue
 
-            overview_items = {item["code"]: item for item in overview[sector_type]}
-            flow_items = {item["code"]: item for item in flow[sector_type]}
+            overview_items = {item["code"]: item for item in overview[sector_type] if item.get("code")}
+            flow_items = {item["code"]: item for item in flow[sector_type] if item.get("code")}
+
+            # For THS data where code is empty, use name as key
+            if not overview_items and overview[sector_type]:
+                overview_items = {item["name"]: item for item in overview[sector_type] if item.get("name")}
+                flow_items = {item["name"]: item for item in flow[sector_type] if item.get("name")}
 
             all_codes = set(overview_items.keys()) | set(flow_items.keys())
             if not all_codes:
@@ -207,7 +322,7 @@ def snapshot_sector_data(trade_date: str | None = None, trigger: str = "manual")
                     ov.get("volume"), ov.get("amount"),
                     ov.get("up_count"), ov.get("down_count"), ov.get("flat_count"),
                     ov.get("leading_stock"), ov.get("leading_stock_code"), ov.get("leading_stock_change_pct"),
-                    fl.get("main_net_inflow"), fl.get("main_net_inflow_pct"),
+                    fl.get("main_net_inflow"), ov.get("main_net_inflow"),
                     fl.get("super_large_net"), fl.get("large_net"), fl.get("medium_net"), fl.get("small_net"),
                 ))
 
@@ -241,7 +356,6 @@ def snapshot_sector_data(trade_date: str | None = None, trigger: str = "manual")
 
 
 def get_sector_history_by_date(trade_date: str, sector_type: str) -> dict:
-    """Return all sector items for a single date."""
     conn = get_connection()
     try:
         rows = conn.execute(
@@ -262,7 +376,6 @@ def get_sector_history_by_date(trade_date: str, sector_type: str) -> dict:
 
 
 def get_sector_history_range(start_date: str, end_date: str, sector_type: str) -> dict:
-    """Return aggregated sector data over a date range."""
     conn = get_connection()
     try:
         rows = conn.execute(
@@ -291,7 +404,6 @@ def get_sector_history_range(start_date: str, end_date: str, sector_type: str) -
 
 
 def get_sector_trend(code: str, sector_type: str, start_date: str, end_date: str) -> dict:
-    """Return daily time-series for a single sector."""
     conn = get_connection()
     try:
         name_row = conn.execute(
@@ -318,7 +430,6 @@ def get_sector_trend(code: str, sector_type: str, start_date: str, end_date: str
 
 
 def get_sector_dates(sector_type: str, limit: int = 90) -> list[str]:
-    """Return available snapshot dates, newest first."""
     conn = get_connection()
     try:
         rows = conn.execute(
