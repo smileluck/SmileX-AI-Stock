@@ -166,10 +166,34 @@ export default function SectorHistory() {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
 
   // range state
+  const [rangePreset, setRangePreset] = useState("7d");
   const [dateRange, setDateRange] = useState<[string, string]>([
     dayjs().subtract(7, "day").format("YYYY-MM-DD"),
     dayjs().format("YYYY-MM-DD"),
   ]);
+
+  const rangePresets = [
+    { label: "近7天", value: "7d", days: 7 },
+    { label: "近1个月", value: "30d", days: 30 },
+    { label: "近3个月", value: "90d", days: 90 },
+    { label: "近半年", value: "180d", days: 180 },
+  ];
+
+  const applyPreset = (value: string) => {
+    const preset = rangePresets.find((p) => p.value === value);
+    if (!preset) return;
+    setRangePreset(value);
+    const start = dayjs().subtract(preset.days, "day").format("YYYY-MM-DD");
+    const end = dayjs().format("YYYY-MM-DD");
+    setDateRange([start, end]);
+    // auto-query with the new range
+    fetchSectorHistoryRange(start, end, sectorType).then((res) => {
+      setRangeData(res);
+      if (res.sectors.length > 0) setTrendCode((prev) => prev || res.sectors[0].code);
+    }).catch(() => {
+      setRangeData(null);
+    });
+  };
   const [rangeData, setRangeData] = useState<SectorHistoryRangeResponse | null>(null);
   const [trendCode, setTrendCode] = useState<string>("");
   const [trendData, setTrendData] = useState<SectorTrendResponse | null>(null);
@@ -374,10 +398,21 @@ export default function SectorHistory() {
             { label: "概念板块", value: "concept" },
           ]}
         />
+        {rangePresets.map((p) => (
+          <Button
+            key={p.value}
+            size="small"
+            type={rangePreset === p.value ? "primary" : "default"}
+            onClick={() => applyPreset(p.value)}
+          >
+            {p.label}
+          </Button>
+        ))}
         <RangePicker
           value={[dayjs(dateRange[0]), dayjs(dateRange[1])]}
           onChange={(dates) => {
             if (dates && dates[0] && dates[1]) {
+              setRangePreset("");
               setDateRange([dates[0].format("YYYY-MM-DD"), dates[1].format("YYYY-MM-DD")]);
             }
           }}
