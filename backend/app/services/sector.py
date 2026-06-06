@@ -384,15 +384,6 @@ def snapshot_sector_data(trade_date: str | None = None, trigger: str = "manual")
         result = {"trade_date": trade_date, "industry_count": 0, "concept_count": 0, "success": True, "message": "ok"}
 
         for sector_type in ("industry", "concept"):
-            row = conn.execute(
-                "SELECT id, item_count FROM sector_snapshot WHERE trade_date = ? AND sector_type = ?",
-                (trade_date, sector_type),
-            ).fetchone()
-            if row:
-                logger.info("Snapshot already exists for %s %s, skipping", trade_date, sector_type)
-                result[f"{sector_type}_count"] = row["item_count"]
-                continue
-
             overview_items = {item["code"]: item for item in overview[sector_type] if item.get("code")}
             flow_items = {item["code"]: item for item in flow[sector_type] if item.get("code")}
 
@@ -404,6 +395,48 @@ def snapshot_sector_data(trade_date: str | None = None, trigger: str = "manual")
             all_codes = set(overview_items.keys()) | set(flow_items.keys())
             if not all_codes:
                 logger.warning("No %s sector data fetched", sector_type)
+                continue
+
+            row = conn.execute(
+                "SELECT id, item_count FROM sector_snapshot WHERE trade_date = ? AND sector_type = ?",
+                (trade_date, sector_type),
+            ).fetchone()
+
+            if row:
+                # Snapshot exists — update capital flow for items that are missing it
+                updated = 0
+                for code in all_codes:
+                    fl = flow_items.get(code, {})
+                    inflow = fl.get("main_net_inflow")
+                    if inflow is not None:
+                        res = conn.execute(
+                            """UPDATE sector_snapshot_item
+                               SET main_net_inflow = ?, main_net_inflow_pct = ?,
+                                   super_large_net = ?, large_net = ?, medium_net = ?, small_net = ?
+                               WHERE trade_date = ? AND sector_type = ? AND code = ?
+                                 AND main_net_inflow IS NULL""",
+                            (inflow, fl.get("main_net_inflow_pct"),
+                             fl.get("super_large_net"), fl.get("large_net"), fl.get("medium_net"), fl.get("small_net"),
+                             trade_date, sector_type, code),
+                        )
+                        updated += res.rowcount
+                    # Also try by name for THS-coded items
+                    name = fl.get("name") or overview_items.get(code, {}).get("name", "")
+                    if name and inflow is not None:
+                        res = conn.execute(
+                            """UPDATE sector_snapshot_item
+                               SET main_net_inflow = ?, main_net_inflow_pct = ?,
+                                   super_large_net = ?, large_net = ?, medium_net = ?, small_net = ?
+                               WHERE trade_date = ? AND sector_type = ? AND name = ?
+                                 AND main_net_inflow IS NULL""",
+                            (inflow, fl.get("main_net_inflow_pct"),
+                             fl.get("super_large_net"), fl.get("large_net"), fl.get("medium_net"), fl.get("small_net"),
+                             trade_date, sector_type, name),
+                        )
+                        updated += res.rowcount
+                if updated:
+                    logger.info("Updated capital flow for %d existing %s items on %s", updated, sector_type, trade_date)
+                result[f"{sector_type}_count"] = row["item_count"]
                 continue
 
             cursor = conn.execute(
@@ -423,7 +456,7 @@ def snapshot_sector_data(trade_date: str | None = None, trigger: str = "manual")
                     ov.get("volume"), ov.get("amount"),
                     ov.get("up_count"), ov.get("down_count"), ov.get("flat_count"),
                     ov.get("leading_stock"), ov.get("leading_stock_code"), ov.get("leading_stock_change_pct"),
-                    fl.get("main_net_inflow"), ov.get("main_net_inflow"),
+                    fl.get("main_net_inflow"), fl.get("main_net_inflow_pct"),
                     fl.get("super_large_net"), fl.get("large_net"), fl.get("medium_net"), fl.get("small_net"),
                 ))
 
