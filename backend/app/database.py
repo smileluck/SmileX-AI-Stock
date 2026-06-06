@@ -81,6 +81,24 @@ CREATE TABLE IF NOT EXISTS sector_snapshot_item (
 );
 CREATE INDEX IF NOT EXISTS idx_ssi_date_type ON sector_snapshot_item(trade_date, sector_type);
 CREATE INDEX IF NOT EXISTS idx_ssi_code_date ON sector_snapshot_item(code, trade_date);
+
+CREATE TABLE IF NOT EXISTS ai_daily_report (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date        TEXT UNIQUE NOT NULL,
+    report_text       TEXT NOT NULL DEFAULT '',
+    market_summary    TEXT NOT NULL DEFAULT '',
+    sector_hot        TEXT NOT NULL DEFAULT '',
+    capital_flow      TEXT NOT NULL DEFAULT '',
+    news_sentiment    TEXT NOT NULL DEFAULT '',
+    outlook           TEXT NOT NULL DEFAULT '',
+    risk_warning      TEXT NOT NULL DEFAULT '',
+    model_used        TEXT NOT NULL DEFAULT '',
+    status            TEXT NOT NULL DEFAULT 'pending',
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_adr_date ON ai_daily_report(trade_date);
+CREATE INDEX IF NOT EXISTS idx_adr_status ON ai_daily_report(status);
 """
 
 

@@ -198,3 +198,30 @@ class GenerateAnalysisResponse(BaseModel):
     success: bool
     message: str
     data: MarketAnalysisItem | None = None
+
+
+class AiDailyReportItem(BaseModel):
+    id: int
+    trade_date: str
+    report_text: str
+    market_summary: str
+    sector_hot: str
+    capital_flow: str
+    news_sentiment: str
+    outlook: str
+    risk_warning: str
+    model_used: str
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class AiDailyReportResponse(BaseModel):
+    items: list[AiDailyReportItem]
+    total: int
+
+
+class GenerateAiReportResponse(BaseModel):
+    success: bool
+    message: str
+    data: AiDailyReportItem | None = None

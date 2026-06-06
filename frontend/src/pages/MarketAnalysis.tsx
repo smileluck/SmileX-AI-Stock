@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  Typography, Card, Table, Tag, Statistic, Row, Col, Button, Spin, Alert, DatePicker, Space, message, Descriptions,
+  Typography, Card, Table, Tag, Statistic, Row, Col, Button, Spin, Alert, DatePicker, Space, message, Descriptions, Tabs,
 } from "antd";
 import {
   ArrowUpOutlined, ArrowDownOutlined, MinusOutlined, ThunderboltOutlined, CheckCircleOutlined, CloseCircleOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { fetchLatestAnalysis, fetchAnalysisHistory, triggerAnalysis } from "../api/marketAnalysis";
-import type { MarketAnalysisItem } from "../types";
+import { fetchLatestReport, fetchReportHistory, triggerReport } from "../api/aiDailyReport";
+import type { MarketAnalysisItem, AiDailyReportItem } from "../types";
 
 const INDEX_NAMES: Record<string, string> = {
   sh000001: "上证指数", sz399001: "深证成指", sz399006: "创业板指",
@@ -32,7 +33,9 @@ function StatusTag({ status }: { status: string }) {
   return <Tag color="default">待分析</Tag>;
 }
 
-export default function MarketAnalysis() {
+/* ────────────────────────── Tab 1: 每日分析和预测 ────────────────────────── */
+
+function DailyAnalysisTab() {
   const [latest, setLatest] = useState<MarketAnalysisItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -65,13 +68,8 @@ export default function MarketAnalysis() {
     }
   }, [page]);
 
-  useEffect(() => {
-    loadLatest();
-  }, [loadLatest]);
-
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+  useEffect(() => { loadLatest(); }, [loadLatest]);
+  useEffect(() => { loadHistory(); }, [loadHistory]);
 
   const handleGenerate = async (date?: string) => {
     setGenerating(true);
@@ -166,22 +164,14 @@ export default function MarketAnalysis() {
   ];
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>AI 每日分析</Typography.Title>
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16 }}>
         <Space>
           <DatePicker
-            onChange={(d) => {
-              if (d) handleGenerate(d.format("YYYY-MM-DD"));
-            }}
+            onChange={(d) => { if (d) handleGenerate(d.format("YYYY-MM-DD")); }}
             placeholder="选择日期手动生成"
           />
-          <Button
-            type="primary"
-            icon={<ThunderboltOutlined />}
-            loading={generating}
-            onClick={() => handleGenerate()}
-          >
+          <Button type="primary" icon={<ThunderboltOutlined />} loading={generating} onClick={() => handleGenerate()}>
             生成今日分析
           </Button>
         </Space>
@@ -192,41 +182,26 @@ export default function MarketAnalysis() {
       <Spin spinning={loading}>
         {latest && (
           <>
-            {/* 当日分析 */}
             <Card title={`📊 ${latest.trade_date} 大盘分析`} style={{ marginBottom: 16 }}>
               <Typography.Paragraph style={{ whiteSpace: "pre-wrap", fontSize: 14 }}>
                 {latest.analysis_text || "暂无分析内容"}
               </Typography.Paragraph>
             </Card>
 
-            {/* 预测摘要 */}
             {summary && (
               <Card title="🔮 次日预测" style={{ marginBottom: 16 }}>
                 <Row gutter={16} style={{ marginBottom: 16 }}>
-                  <Col span={6}>
-                    <Statistic
-                      title="预测方向"
-                      valueRender={() => <DirectionTag direction={summary.overall_direction} />}
-                    />
-                  </Col>
-                  <Col span={6}>
-                    <Statistic title="置信度" value={(summary.confidence * 100).toFixed(0)} suffix="%" />
-                  </Col>
-                  <Col span={6}>
-                    <Statistic title="风险等级" valueRender={() => <RiskTag level={summary.risk_level} />} />
-                  </Col>
-                  <Col span={6}>
-                    <Statistic title="关键因素" value={summary.key_factors?.length ?? 0} suffix="项" />
-                  </Col>
+                  <Col span={6}><Statistic title="预测方向" valueRender={() => <DirectionTag direction={summary.overall_direction} />} /></Col>
+                  <Col span={6}><Statistic title="置信度" value={(summary.confidence * 100).toFixed(0)} suffix="%" /></Col>
+                  <Col span={6}><Statistic title="风险等级" valueRender={() => <RiskTag level={summary.risk_level} />} /></Col>
+                  <Col span={6}><Statistic title="关键因素" value={summary.key_factors?.length ?? 0} suffix="项" /></Col>
                 </Row>
 
                 {summary.key_factors && summary.key_factors.length > 0 && (
                   <div style={{ marginBottom: 12 }}>
                     <Typography.Text strong>关键因素：</Typography.Text>
                     <div style={{ marginTop: 4 }}>
-                      {summary.key_factors.map((f, i) => (
-                        <Tag key={i} style={{ marginBottom: 4 }}>{f}</Tag>
-                      ))}
+                      {summary.key_factors.map((f, i) => (<Tag key={i} style={{ marginBottom: 4 }}>{f}</Tag>))}
                     </div>
                   </div>
                 )}
@@ -241,9 +216,7 @@ export default function MarketAnalysis() {
                   <Table
                     size="small"
                     pagination={false}
-                    dataSource={Object.entries(summary.indices).map(([code, v]) => ({
-                      key: code, code, name: INDEX_NAMES[code] || code, ...v,
-                    }))}
+                    dataSource={Object.entries(summary.indices).map(([code, v]) => ({ key: code, code, name: INDEX_NAMES[code] || code, ...v }))}
                     columns={[
                       { title: "指数", dataIndex: "name", key: "name" },
                       {
@@ -262,20 +235,13 @@ export default function MarketAnalysis() {
               </Card>
             )}
 
-            {/* 复盘 */}
             {latest.status === "reviewed" && latest.review_text && (
               <Card title="📝 预测复盘" style={{ marginBottom: 16 }}>
                 <Typography.Paragraph style={{ whiteSpace: "pre-wrap", fontSize: 14 }}>
                   {latest.review_text}
                 </Typography.Paragraph>
                 {actualData?.indices && summary?.indices && (
-                  <Table
-                    size="small"
-                    pagination={false}
-                    dataSource={compareData}
-                    columns={compareColumns}
-                    style={{ marginTop: 12 }}
-                  />
+                  <Table size="small" pagination={false} dataSource={compareData} columns={compareColumns} style={{ marginTop: 12 }} />
                 )}
               </Card>
             )}
@@ -283,32 +249,139 @@ export default function MarketAnalysis() {
         )}
 
         {!latest && !loading && (
-          <Card>
-            <Typography.Text type="secondary">暂无分析数据，点击"生成今日分析"开始</Typography.Text>
-          </Card>
+          <Card><Typography.Text type="secondary">暂无分析数据，点击"生成今日分析"开始</Typography.Text></Card>
         )}
       </Spin>
 
-      {/* 历史列表 */}
       <Card title="历史分析" style={{ marginTop: 16 }}>
         <Table
           size="small"
           dataSource={historyItems}
           columns={historyColumns}
           rowKey="id"
-          pagination={{
-            current: page,
-            pageSize,
-            total: historyTotal,
-            onChange: setPage,
-            showTotal: (t) => `共 ${t} 条`,
-          }}
-          onRow={(r) => ({
-            onClick: () => setLatest(r),
-            style: { cursor: "pointer" },
-          })}
+          pagination={{ current: page, pageSize, total: historyTotal, onChange: setPage, showTotal: (t) => `共 ${t} 条` }}
+          onRow={(r) => ({ onClick: () => setLatest(r), style: { cursor: "pointer" } })}
         />
       </Card>
+    </>
+  );
+}
+
+/* ────────────────────────── Tab 2: 收盘分析 ────────────────────────── */
+
+function ClosingReportTab() {
+  const [latest, setLatest] = useState<AiDailyReportItem | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [historyItems, setHistoryItems] = useState<AiDailyReportItem[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
+  const loadLatest = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetchLatestReport();
+      setLatest(res);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await fetchReportHistory(pageSize, (page - 1) * pageSize);
+      setHistoryItems(res.items);
+      setHistoryTotal(res.total);
+    } catch {
+      // ignore
+    }
+  }, [page]);
+
+  useEffect(() => { loadLatest(); }, [loadLatest]);
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  const handleGenerate = async (date?: string) => {
+    setGenerating(true);
+    try {
+      const res = await triggerReport(date);
+      if (res.success) {
+        message.success(res.message);
+        setLatest(res.data);
+        loadHistory();
+      } else {
+        message.error(res.message);
+      }
+    } catch {
+      message.error("生成失败，请检查后端服务");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const historyColumns = [
+    { title: "日期", dataIndex: "trade_date", key: "trade_date" },
+    { title: "状态", dataIndex: "status", key: "status", render: (s: string) => s === "completed" ? <Tag color="green">已完成</Tag> : <Tag color="default">{s}</Tag> },
+    { title: "模型", dataIndex: "model_used", key: "model" },
+    { title: "生成时间", dataIndex: "created_at", key: "created_at" },
+  ];
+
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16 }}>
+        <Space>
+          <DatePicker
+            onChange={(d) => { if (d) handleGenerate(d.format("YYYY-MM-DD")); }}
+            placeholder="选择日期手动生成"
+          />
+          <Button type="primary" icon={<ThunderboltOutlined />} loading={generating} onClick={() => handleGenerate()}>
+            生成收盘分析
+          </Button>
+        </Space>
+      </div>
+
+      <Spin spinning={loading}>
+        {latest && (
+          <Card title={`📋 ${latest.trade_date} AI 收盘分析报告`} style={{ marginBottom: 16 }}>
+            <Typography.Paragraph style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.8 }}>
+              {latest.report_text || "暂无报告内容"}
+            </Typography.Paragraph>
+          </Card>
+        )}
+        {!latest && !loading && (
+          <Card><Typography.Text type="secondary">暂无收盘分析报告，点击"生成收盘分析"开始</Typography.Text></Card>
+        )}
+      </Spin>
+
+      <Card title="历史报告" style={{ marginTop: 16 }}>
+        <Table
+          size="small"
+          dataSource={historyItems}
+          columns={historyColumns}
+          rowKey="id"
+          pagination={{ current: page, pageSize, total: historyTotal, onChange: setPage, showTotal: (t) => `共 ${t} 条` }}
+          onRow={(r) => ({ onClick: () => setLatest(r), style: { cursor: "pointer" } })}
+        />
+      </Card>
+    </>
+  );
+}
+
+/* ────────────────────────── Main Page ────────────────────────── */
+
+export default function MarketAnalysis() {
+  return (
+    <div>
+      <Typography.Title level={4} style={{ marginBottom: 16 }}>AI 每日分析</Typography.Title>
+      <Tabs
+        defaultActiveKey="daily"
+        items={[
+          { key: "daily", label: "每日分析和预测", children: <DailyAnalysisTab /> },
+          { key: "closing", label: "收盘分析", children: <ClosingReportTab /> },
+        ]}
+      />
     </div>
   );
 }

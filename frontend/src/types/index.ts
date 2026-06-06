@@ -300,3 +300,24 @@ export interface SectorSnapshotResponse {
   concept_count: number;
 }
 
+export interface AiDailyReportItem {
+  id: number;
+  trade_date: string;
+  report_text: string;
+  market_summary: string;
+  sector_hot: string;
+  capital_flow: string;
+  news_sentiment: string;
+  outlook: string;
+  risk_warning: string;
+  model_used: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AiDailyReportResponse {
+  items: AiDailyReportItem[];
+  total: number;
+}
+
