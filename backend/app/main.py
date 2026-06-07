@@ -20,7 +20,7 @@ from app.services.news_sync import sync_all
 from app.services.sector import snapshot_sector_data
 from app.services.ai_daily_report import generate_ai_daily_report
 from app.services.sector_analysis import generate_sector_analysis
-from app.services.stock import snapshot_limit_up_data, generate_recommendations
+from app.services.stock import snapshot_limit_up_data, generate_recommendations, update_morning_performance
 
 SYNC_INTERVAL_SECONDS = 300
 
@@ -65,8 +65,22 @@ async def lifespan(app: FastAPI):
         cron="30 15 * * 1-5",
     )
     add_job(
-        lambda: generate_recommendations(),
-        job_id="stock_recommendation",
+        lambda: generate_recommendations(phase="morning"),
+        job_id="stock_recommendation_morning",
+        cron="26 9 * * 1-5",
+    )
+
+    def _afternoon_rec_job():
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+        try:
+            update_morning_performance(trade_date)
+        except Exception:
+            pass
+        return generate_recommendations(trade_date, phase="afternoon")
+
+    add_job(
+        _afternoon_rec_job,
+        job_id="stock_recommendation_afternoon",
         cron="35 15 * * 1-5",
     )
     yield

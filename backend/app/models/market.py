@@ -330,6 +330,10 @@ class RecommendationItem(BaseModel):
     target_price: float | None = None
     stop_loss_price: float | None = None
     risk_level: str = "medium"
+    current_price: float | None = None
+    buy_low: float | None = None
+    buy_high: float | None = None
+    take_profit_price: float | None = None
     confidence: float = 0.5
     sector: str = ""
     score: float = 0
@@ -337,6 +341,7 @@ class RecommendationItem(BaseModel):
     status: str
     actual_return_pct: float | None = None
     actual_exit_date: str | None = None
+    phase: str = "afternoon"
     created_at: str
     updated_at: str
 
@@ -351,6 +356,11 @@ class GenerateRecommendationResponse(BaseModel):
     message: str
     data: list[RecommendationItem] | None = None
     total: int = 0
+
+
+class GenerateRecommendationRequest(BaseModel):
+    trade_date: str | None = None
+    phase: str = "afternoon"
 
 
 # --- Sector AI Analysis ---

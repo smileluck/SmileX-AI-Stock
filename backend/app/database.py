@@ -140,10 +140,14 @@ CREATE TABLE IF NOT EXISTS stock_recommendation (
     status            TEXT DEFAULT 'pending',
     actual_return_pct REAL,
     actual_exit_date  TEXT,
+    current_price     REAL,
+    buy_low           REAL,
+    buy_high          REAL,
+    take_profit_price REAL,
+    phase             TEXT NOT NULL DEFAULT 'afternoon',
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sr_date_code ON stock_recommendation(trade_date, code);
 CREATE INDEX IF NOT EXISTS idx_sr_date ON stock_recommendation(trade_date);
 CREATE INDEX IF NOT EXISTS idx_sr_status ON stock_recommendation(status);
 
@@ -196,6 +200,14 @@ def get_connection() -> sqlite3.Connection:
 
 _MIGRATIONS = [
     "ALTER TABLE market_analysis ADD COLUMN scored_news TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE stock_recommendation ADD COLUMN phase TEXT NOT NULL DEFAULT 'afternoon'",
+    "ALTER TABLE stock_recommendation ADD COLUMN current_price REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN buy_low REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN buy_high REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN take_profit_price REAL",
+    "DROP INDEX IF EXISTS idx_sr_date_code",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sr_date_code_phase ON stock_recommendation(trade_date, code, phase)",
+    "CREATE INDEX IF NOT EXISTS idx_sr_phase ON stock_recommendation(phase)",
 ]
 
 

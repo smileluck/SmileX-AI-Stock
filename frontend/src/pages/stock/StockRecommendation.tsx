@@ -9,8 +9,11 @@ import {
   Progress,
   message,
   DatePicker,
+  Tabs,
+  Dropdown,
+  Space,
 } from "antd";
-import { SyncOutlined, BulbOutlined } from "@ant-design/icons";
+import { SyncOutlined, BulbOutlined, DownOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { fetchRecommendations, triggerRecommendationGeneration } from "../../api/stock";
 import StockLink from "../../components/StockLink";
@@ -54,15 +57,40 @@ const columns = [
     width: 130,
   },
   {
+    title: "当前价",
+    dataIndex: "current_price",
+    key: "current_price",
+    width: 80,
+    render: (v: number | null) => (v != null ? v.toFixed(2) : "--"),
+  },
+  {
+    title: "买入区间",
+    key: "buy_range",
+    width: 120,
+    render: (_: unknown, r: RecommendationItem) =>
+      r.buy_low != null && r.buy_high != null
+        ? `${r.buy_low.toFixed(2)} ~ ${r.buy_high.toFixed(2)}`
+        : "--",
+  },
+  {
     title: "目标价",
     dataIndex: "target_price",
     key: "target_price",
+    width: 80,
     render: (v: number | null) => (v != null ? v.toFixed(2) : "--"),
   },
   {
     title: "止损价",
     dataIndex: "stop_loss_price",
     key: "stop_loss_price",
+    width: 80,
+    render: (v: number | null) => (v != null ? v.toFixed(2) : "--"),
+  },
+  {
+    title: "止盈价",
+    dataIndex: "take_profit_price",
+    key: "take_profit_price",
+    width: 80,
     render: (v: number | null) => (v != null ? v.toFixed(2) : "--"),
   },
   {
@@ -109,31 +137,33 @@ export default function StockRecommendation() {
   const [genLoading, setGenLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
+  const [phase, setPhase] = useState<string>("morning");
 
-  const loadData = useCallback(async (tradeDate?: string) => {
+  const loadData = useCallback(async (tradeDate?: string, p?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchRecommendations(tradeDate || date);
+      const res = await fetchRecommendations(tradeDate || date, p || phase);
       setData(res);
     } catch {
       setError("获取推荐数据失败");
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, phase]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (targetPhase: string) => {
     setGenLoading(true);
     try {
-      const res = await triggerRecommendationGeneration();
+      const res = await triggerRecommendationGeneration(date, targetPhase);
       if (res.success) {
-        message.success(`生成 ${res.total} 条推荐`);
-        loadData();
+        message.success(`${targetPhase === "morning" ? "早盘" : "午后"}推荐生成 ${res.total} 条`);
+        setPhase(targetPhase);
+        loadData(undefined, targetPhase);
       } else {
         message.error(res.message);
       }
@@ -144,14 +174,28 @@ export default function StockRecommendation() {
     }
   };
 
+  const handlePhaseChange = (key: string) => {
+    setPhase(key);
+  };
+
   const items = data?.items ?? [];
   const avgConf = items.length ? (items.reduce((s, i) => s + i.confidence, 0) / items.length * 100).toFixed(0) : "--";
   const riskDist = items.reduce<Record<string, number>>((acc, i) => { acc[i.risk_level] = (acc[i.risk_level] || 0) + 1; return acc; }, {});
 
+  const genMenuItems = [
+    { key: "morning", label: "生成早盘推荐" },
+    { key: "afternoon", label: "生成午后推荐" },
+  ];
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>今日推荐</Typography.Title>
+        <Space>
+          <Typography.Title level={4} style={{ margin: 0 }}>AI 个股推荐</Typography.Title>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            自动生成：早盘 9:26 / 午后 15:35
+          </Typography.Text>
+        </Space>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <DatePicker
             value={dayjs(date)}
@@ -159,13 +203,26 @@ export default function StockRecommendation() {
             size="small"
           />
           <Button icon={<SyncOutlined spin={loading} />} onClick={() => loadData()} size="small">刷新</Button>
-          <Button type="primary" icon={<BulbOutlined />} onClick={handleGenerate} loading={genLoading}>
-            AI 生成推荐
-          </Button>
+          <Dropdown
+            menu={{ items: genMenuItems, onClick: ({ key }) => handleGenerate(key) }}
+          >
+            <Button type="primary" icon={<BulbOutlined />} loading={genLoading}>
+              AI 生成推荐 <DownOutlined />
+            </Button>
+          </Dropdown>
         </div>
       </div>
 
       {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
+
+      <Tabs
+        activeKey={phase}
+        onChange={handlePhaseChange}
+        items={[
+          { key: "morning", label: "早盘推荐" },
+          { key: "afternoon", label: "午后推荐" },
+        ]}
+      />
 
       <Spin spinning={loading && !data}>
         <div style={{ marginBottom: 16, display: "flex", gap: 16, fontSize: 14, color: "#666" }}>

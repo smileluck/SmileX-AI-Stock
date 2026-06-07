@@ -23,16 +23,20 @@ export async function triggerLimitUpSnapshot(): Promise<{ success: boolean; mess
   return data;
 }
 
-export async function fetchRecommendations(tradeDate?: string): Promise<RecommendationListResponse> {
-  const { data } = await client.get("/stock/recommendation", {
-    params: tradeDate ? { trade_date: tradeDate } : {},
-  });
+export async function fetchRecommendations(
+  tradeDate?: string,
+  phase?: string,
+): Promise<RecommendationListResponse> {
+  const params: Record<string, string> = {};
+  if (tradeDate) params.trade_date = tradeDate;
+  if (phase) params.phase = phase;
+  const { data } = await client.get("/stock/recommendation", { params });
   return data;
 }
 
 export async function fetchRecommendationHistory(
   limit = 50,
-  offset = 0
+  offset = 0,
 ): Promise<RecommendationListResponse> {
   const { data } = await client.get("/stock/recommendation/history", {
     params: { limit, offset },
@@ -40,7 +44,13 @@ export async function fetchRecommendationHistory(
   return data;
 }
 
-export async function triggerRecommendationGeneration(): Promise<GenerateRecommendationResponse> {
-  const { data } = await client.post("/stock/recommendation/generate");
+export async function triggerRecommendationGeneration(
+  tradeDate?: string,
+  phase: string = "afternoon",
+): Promise<GenerateRecommendationResponse> {
+  const { data } = await client.post("/stock/recommendation/generate", {
+    trade_date: tradeDate || null,
+    phase,
+  });
   return data;
 }

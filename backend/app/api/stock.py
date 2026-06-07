@@ -7,6 +7,7 @@ from app.models.market import (
     LimitUpResponse,
     RecommendationListResponse,
     GenerateRecommendationResponse,
+    GenerateRecommendationRequest,
 )
 from app.services.stock import (
     get_stock_overview,
@@ -38,10 +39,13 @@ def trigger_limit_up_snapshot():
 
 
 @router.get("/stock/recommendation", response_model=RecommendationListResponse)
-def stock_recommendations(trade_date: str | None = Query(default=None, description="YYYY-MM-DD")):
+def stock_recommendations(
+    trade_date: str | None = Query(default=None, description="YYYY-MM-DD"),
+    phase: str | None = Query(default=None, description="morning or afternoon"),
+):
     if not trade_date:
         trade_date = datetime.now().strftime("%Y-%m-%d")
-    items = get_recommendations_by_date(trade_date)
+    items = get_recommendations_by_date(trade_date, phase)
     return RecommendationListResponse(items=items, total=len(items))
 
 
@@ -52,12 +56,14 @@ def recommendation_history(limit: int = Query(default=50, le=200), offset: int =
 
 
 @router.post("/stock/recommendation/generate", response_model=GenerateRecommendationResponse)
-def trigger_recommendation_generation():
+def trigger_recommendation_generation(request: GenerateRecommendationRequest | None = None):
+    trade_date = (request.trade_date if request else None) or datetime.now().strftime("%Y-%m-%d")
+    phase = (request.phase if request else None) or "afternoon"
     try:
-        result = generate_recommendations()
+        result = generate_recommendations(trade_date, phase=phase)
         return GenerateRecommendationResponse(
             success=True,
-            message="推荐生成成功",
+            message=f"{'早盘' if phase == 'morning' else '午后'}推荐生成成功",
             data=result.get("items"),
             total=result.get("total", 0),
         )

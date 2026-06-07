@@ -426,6 +426,10 @@ export interface RecommendationItem {
   target_price: number | null;
   stop_loss_price: number | null;
   risk_level: string;
+  current_price: number | null;
+  buy_low: number | null;
+  buy_high: number | null;
+  take_profit_price: number | null;
   confidence: number;
   sector: string;
   score: number;
@@ -433,6 +437,7 @@ export interface RecommendationItem {
   status: string;
   actual_return_pct: number | null;
   actual_exit_date: string | null;
+  phase: string;
   created_at: string;
   updated_at: string;
 }

@@ -728,8 +728,12 @@ _REC_SYSTEM_PROMPT = """\
    - name: 股票名称
    - reason: 推荐理由（50-100字，结合当日市场表现和基本面）
    - strategy: 操作策略（如 "短线追涨"、"低吸等待反弹"、"趋势持有"）
-   - target_price: 目标价（如有）
-   - stop_loss_price: 止损价（如有）
+   - current_price: 当前价格（根据最新行情数据填写）
+   - buy_low: 建议买入区间下限
+   - buy_high: 建议买入区间上限
+   - target_price: 目标价
+   - stop_loss_price: 止损价
+   - take_profit_price: 止盈价
    - risk_level: 风险等级 "low"/"medium"/"high"
    - confidence: 信心度 0-1 之间的小数
    - sector: 所属行业/板块
@@ -741,27 +745,40 @@ _REC_SYSTEM_PROMPT = """\
    - 结合热门板块和当日市场热点
    - 兼顾不同风险偏好的品种
    - 不推荐ST、*ST股票
+   - 买入区间应基于当前价格合理设定，buy_low 不高于当前价，buy_high 可略高于当前价
+   - 止损价一般设在买入区间下限下方 2-5%
+   - 止盈价和目标价应体现合理盈利预期
 
 3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
 """
 
 
-def _get_rec_context(trade_date: str) -> str:
+def _get_rec_context(trade_date: str, phase: str = "afternoon") -> str:
     """Collect context data for recommendation generation."""
     parts = []
 
     # Limit-up data
     conn = get_connection()
     try:
+        if phase == "morning":
+            # 早盘尚无当日涨停数据，使用昨日涨停
+            prev_row = conn.execute(
+                "SELECT MAX(trade_date) as d FROM limit_up_snapshot WHERE trade_date < ?",
+                (trade_date,),
+            ).fetchone()
+            lu_date = prev_row["d"] if prev_row and prev_row["d"] else trade_date
+        else:
+            lu_date = trade_date
         rows = conn.execute(
             "SELECT code, name, change_pct, amount, limit_up_times, sector FROM limit_up_snapshot WHERE trade_date = ? ORDER BY amount DESC LIMIT 20",
-            (trade_date,),
+            (lu_date,),
         ).fetchall()
     finally:
         conn.close()
 
     if rows:
-        lines = [f"=== 今日涨停股 ({len(rows)}只) ==="]
+        label = "昨日涨停股" if phase == "morning" else "今日涨停股"
+        lines = [f"=== {label} ({len(rows)}只) ==="]
         for r in rows:
             lines.append(f"  {r['name']}({r['code']}) 涨幅{r['change_pct']}% 连板{r['limit_up_times']} 行业:{r['sector']}")
         parts.append("\n".join(lines))
@@ -769,9 +786,17 @@ def _get_rec_context(trade_date: str) -> str:
     # Hot sectors
     conn = get_connection()
     try:
+        if phase == "morning":
+            prev_row = conn.execute(
+                "SELECT MAX(trade_date) as d FROM sector_snapshot_item WHERE trade_date < ?",
+                (trade_date,),
+            ).fetchone()
+            sec_date = prev_row["d"] if prev_row and prev_row["d"] else trade_date
+        else:
+            sec_date = trade_date
         rows = conn.execute(
             "SELECT name, change_pct, main_net_inflow, leading_stock FROM sector_snapshot_item WHERE trade_date = ? AND sector_type = 'industry' ORDER BY change_pct DESC LIMIT 10",
-            (trade_date,),
+            (sec_date,),
         ).fetchall()
     finally:
         conn.close()
@@ -783,13 +808,19 @@ def _get_rec_context(trade_date: str) -> str:
             lines.append(f"  {r['name']}: 涨幅{r['change_pct']}% 主力净流入{inflow:.2f}亿 领涨:{r['leading_stock']}")
         parts.append("\n".join(lines))
 
-    # Recent news
+    # Recent news — include overnight news for morning phase
     conn = get_connection()
     try:
-        rows = conn.execute(
-            "SELECT title, source FROM news WHERE date(publish_time) = ? ORDER BY publish_time DESC LIMIT 15",
-            (trade_date,),
-        ).fetchall()
+        if phase == "morning":
+            rows = conn.execute(
+                "SELECT title, source FROM news WHERE date(publish_time) >= date(?, '-1 day') ORDER BY publish_time DESC LIMIT 20",
+                (trade_date,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT title, source FROM news WHERE date(publish_time) = ? ORDER BY publish_time DESC LIMIT 15",
+                (trade_date,),
+            ).fetchall()
     finally:
         conn.close()
 
@@ -816,13 +847,13 @@ def _parse_recommendation_json(text: str) -> list[dict]:
     return []
 
 
-def generate_recommendations(trade_date: str | None = None) -> dict:
+def generate_recommendations(trade_date: str | None = None, phase: str = "afternoon") -> dict:
     """Generate AI stock recommendations."""
     if not trade_date:
         trade_date = datetime.now().strftime("%Y-%m-%d")
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    context = _get_rec_context(trade_date)
+    context = _get_rec_context(trade_date, phase)
 
     messages = [
         {"role": "system", "content": _REC_SYSTEM_PROMPT},
@@ -837,15 +868,17 @@ def generate_recommendations(trade_date: str | None = None) -> dict:
 
     conn = get_connection()
     try:
-        # Remove existing recommendations for this date
-        conn.execute("DELETE FROM stock_recommendation WHERE trade_date = ?", (trade_date,))
+        # Remove existing recommendations for this date and phase
+        conn.execute("DELETE FROM stock_recommendation WHERE trade_date = ? AND phase = ?", (trade_date, phase))
 
         for rec in recs:
             conn.execute(
                 """INSERT INTO stock_recommendation
                    (trade_date, code, name, reason, strategy, target_price, stop_loss_price,
-                    risk_level, confidence, sector, score, model_used, status, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?)""",
+                    risk_level, confidence, sector, score, model_used, status,
+                    current_price, buy_low, buy_high, take_profit_price,
+                    phase, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?, ?,?,?)""",
                 (
                     trade_date,
                     rec.get("code", ""),
@@ -860,6 +893,11 @@ def generate_recommendations(trade_date: str | None = None) -> dict:
                     _parse_float(rec.get("score")) or 0,
                     llm.get_model_for_function("stock_recommendation"),
                     "pending",
+                    _parse_float(rec.get("current_price")),
+                    _parse_float(rec.get("buy_low")),
+                    _parse_float(rec.get("buy_high")),
+                    _parse_float(rec.get("take_profit_price")),
+                    phase,
                     now,
                     now,
                 ),
@@ -867,8 +905,8 @@ def generate_recommendations(trade_date: str | None = None) -> dict:
         conn.commit()
 
         rows = conn.execute(
-            "SELECT * FROM stock_recommendation WHERE trade_date = ? ORDER BY score DESC",
-            (trade_date,),
+            "SELECT * FROM stock_recommendation WHERE trade_date = ? AND phase = ? ORDER BY score DESC",
+            (trade_date, phase),
         ).fetchall()
         items = [dict(r) for r in rows]
     except Exception:
@@ -878,17 +916,23 @@ def generate_recommendations(trade_date: str | None = None) -> dict:
     finally:
         conn.close()
 
-    logger.info("Generated %d recommendations for %s", len(items), trade_date)
+    logger.info("Generated %d %s recommendations for %s", len(items), phase, trade_date)
     return {"items": items, "total": len(items)}
 
 
-def get_recommendations_by_date(trade_date: str) -> list[dict]:
+def get_recommendations_by_date(trade_date: str, phase: str | None = None) -> list[dict]:
     conn = get_connection()
     try:
-        rows = conn.execute(
-            "SELECT * FROM stock_recommendation WHERE trade_date = ? ORDER BY score DESC",
-            (trade_date,),
-        ).fetchall()
+        if phase:
+            rows = conn.execute(
+                "SELECT * FROM stock_recommendation WHERE trade_date = ? AND phase = ? ORDER BY score DESC",
+                (trade_date, phase),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM stock_recommendation WHERE trade_date = ? ORDER BY score DESC",
+                (trade_date,),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -905,3 +949,73 @@ def get_recommendation_history(limit: int = 50, offset: int = 0) -> tuple[list[d
         return [dict(r) for r in rows], total
     finally:
         conn.close()
+
+
+def update_morning_performance(trade_date: str | None = None) -> dict:
+    """Update actual_return_pct for morning recommendations using live prices."""
+    if not trade_date:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT id, code FROM stock_recommendation WHERE trade_date = ? AND phase = 'morning' AND status = 'pending'",
+            (trade_date,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return {"updated": 0, "trade_date": trade_date}
+
+    # Batch fetch prices from Sina
+    codes = [r["code"] for r in rows]
+    price_map: dict[str, float | None] = {}
+    prev_close_map: dict[str, float | None] = {}
+
+    sina_codes = ",".join(_code_to_sina(c) for c in codes)
+    try:
+        r = requests.get(
+            f"https://hq.sinajs.cn/list={sina_codes}",
+            headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for line in r.text.strip().split("\n"):
+            m = re.match(r'var hq_str_(s[hz]\d+)="(.+)"', line.strip())
+            if m:
+                parts = m.group(2).split(",")
+                if len(parts) >= 4:
+                    code = m.group(1)[2:]
+                    prev_close = _parse_float(parts[2])
+                    current = _parse_float(parts[3])
+                    prev_close_map[code] = prev_close
+                    price_map[code] = current
+    except Exception:
+        logger.warning("Failed to fetch prices for morning performance update", exc_info=True)
+        return {"updated": 0, "trade_date": trade_date}
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    updated = 0
+    conn = get_connection()
+    try:
+        for row in rows:
+            code = row["code"]
+            current = price_map.get(code)
+            prev_close = prev_close_map.get(code)
+            if current is not None and prev_close and prev_close > 0:
+                ret_pct = round((current - prev_close) / prev_close * 100, 2)
+                conn.execute(
+                    "UPDATE stock_recommendation SET actual_return_pct = ?, status = 'completed', updated_at = ? WHERE id = ?",
+                    (ret_pct, now, row["id"]),
+                )
+                updated += 1
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception("Failed to update morning performance")
+    finally:
+        conn.close()
+
+    logger.info("Updated morning performance for %d / %d stocks on %s", updated, len(rows), trade_date)
+    return {"updated": updated, "total": len(rows), "trade_date": trade_date}

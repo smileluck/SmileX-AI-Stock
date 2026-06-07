@@ -35,6 +35,7 @@ const menuItems = [
     children: [
       { key: "/analysis/market", icon: <FundOutlined />, label: "大盘分析" },
       { key: "/analysis/sector", icon: <PieChartOutlined />, label: "板块分析" },
+      { key: "/analysis/stock-recommendation", icon: <StockOutlined />, label: "个股推荐" },
     ],
   },
   { key: "/news", icon: <ReadOutlined />, label: "资讯聚合" },
@@ -55,7 +56,6 @@ const menuItems = [
     children: [
       { key: "/stock/overview", icon: <DashboardOutlined />, label: "分析总览" },
       { key: "/stock/limit-up", icon: <ThunderboltOutlined />, label: "今日涨停" },
-      { key: "/stock/recommendation", icon: <BulbOutlined />, label: "今日推荐" },
       { key: "/stock/history", icon: <HistoryOutlined />, label: "历史推荐" },
     ],
   },

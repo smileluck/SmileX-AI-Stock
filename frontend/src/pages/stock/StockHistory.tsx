@@ -35,6 +35,17 @@ const riskColors: Record<string, string> = {
 const columns = [
   { title: "日期", dataIndex: "trade_date", key: "trade_date", width: 110 },
   {
+    title: "阶段",
+    dataIndex: "phase",
+    key: "phase",
+    width: 80,
+    render: (v: string) => (
+      <Tag color={v === "morning" ? "cyan" : "purple"}>
+        {v === "morning" ? "早盘" : "午后"}
+      </Tag>
+    ),
+  },
+  {
     title: "代码",
     dataIndex: "code",
     key: "code",
