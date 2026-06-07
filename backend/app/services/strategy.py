@@ -415,8 +415,11 @@ def create_strategy(data: dict) -> dict:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     weight_json = json.dumps(data.get("weight_config", {}), ensure_ascii=False)
     output_json = json.dumps(data.get("output_format", {}), ensure_ascii=False)
+    is_enabled = 1 if data.get("is_enabled", True) else 0
     conn = get_connection()
     try:
+        if is_enabled:
+            _ensure_single_enabled(data["type"], conn)
         conn.execute(
             """INSERT INTO strategy
                (name, type, description, prompt_template, weight_config, news_enabled, news_count,
@@ -431,7 +434,7 @@ def create_strategy(data: dict) -> dict:
                 1 if data.get("news_enabled", True) else 0,
                 data.get("news_count", 15),
                 output_json,
-                1 if data.get("is_enabled", True) else 0,
+                is_enabled,
                 0,
                 data.get("sort_order", 0),
                 data.get("model_override"),
@@ -487,8 +490,13 @@ def update_strategy(strategy_id: int, data: dict) -> dict | None:
     params.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     params.append(strategy_id)
 
+    strategy_type = data.get("type") or existing["type"]
+    enabling = data.get("is_enabled") is True
+
     conn = get_connection()
     try:
+        if enabling:
+            _ensure_single_enabled(strategy_type, conn)
         conn.execute(f"UPDATE strategy SET {', '.join(fields)} WHERE id = ?", params)
         conn.commit()
         return get_strategy(strategy_id)
@@ -511,6 +519,14 @@ def delete_strategy(strategy_id: int) -> bool:
         conn.close()
 
 
+def _ensure_single_enabled(strategy_type: str, conn) -> None:
+    """Ensure at most one strategy of the given type is enabled."""
+    conn.execute(
+        "UPDATE strategy SET is_enabled = 0, updated_at = ? WHERE type = ? AND is_enabled = 1",
+        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), strategy_type),
+    )
+
+
 def toggle_strategy(strategy_id: int) -> dict | None:
     existing = get_strategy(strategy_id)
     if not existing:
@@ -519,6 +535,8 @@ def toggle_strategy(strategy_id: int) -> dict | None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_connection()
     try:
+        if new_val:
+            _ensure_single_enabled(existing["type"], conn)
         conn.execute(
             "UPDATE strategy SET is_enabled = ?, updated_at = ? WHERE id = ?",
             (new_val, now, strategy_id),
