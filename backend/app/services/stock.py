@@ -353,7 +353,7 @@ def get_market_sentiment() -> dict:
     }
 
 
-def _get_hot_concepts(limit: int = 3) -> list[dict]:
+def _get_hot_concepts(limit: int = 5) -> list[dict]:
     """Get top concepts and industries from DB snapshot."""
     conn = get_connection()
     try:
@@ -366,7 +366,7 @@ def _get_hot_concepts(limit: int = 3) -> list[dict]:
 
         rows = conn.execute(
             """SELECT name, sector_type, change_pct, main_net_inflow,
-                      leading_stock, leading_stock_change_pct
+                      leading_stock, leading_stock_code, leading_stock_change_pct
                FROM sector_snapshot_item
                WHERE trade_date = ? AND sector_type = 'concept'
                ORDER BY change_pct DESC NULLS LAST LIMIT ?""",
@@ -376,7 +376,7 @@ def _get_hot_concepts(limit: int = 3) -> list[dict]:
 
         rows2 = conn.execute(
             """SELECT name, sector_type, change_pct, main_net_inflow,
-                      leading_stock, leading_stock_change_pct
+                      leading_stock, leading_stock_code, leading_stock_change_pct
                FROM sector_snapshot_item
                WHERE trade_date = ? AND sector_type = 'industry'
                ORDER BY change_pct DESC NULLS LAST LIMIT ?""",
@@ -392,6 +392,7 @@ def _get_hot_concepts(limit: int = 3) -> list[dict]:
                 "change_pct": _round2(item.get("change_pct")),
                 "main_net_inflow": item.get("main_net_inflow"),
                 "leading_stock": item.get("leading_stock") or "",
+                "leading_stock_code": item.get("leading_stock_code") or "",
                 "leading_stock_change_pct": _round2(item.get("leading_stock_change_pct")),
             })
         return result

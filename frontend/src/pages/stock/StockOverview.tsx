@@ -200,8 +200,8 @@ export default function StockOverview() {
   const lu = data?.limit_up;
   const hotSources: HotStockSource[] = s?.hot_stocks ?? [];
   const hotConcepts: HotConceptItem[] = s?.hot_concepts ?? [];
-  const topConcepts = hotConcepts.filter((c) => c.sector_type === "concept").slice(0, 3);
-  const topIndustries = hotConcepts.filter((c) => c.sector_type === "industry").slice(0, 3);
+  const topConcepts = hotConcepts.filter((c) => c.sector_type === "concept").slice(0, 5);
+  const topIndustries = hotConcepts.filter((c) => c.sector_type === "industry").slice(0, 5);
 
   const hotTabItems = hotSources.length > 0
     ? hotSources.map((src) => ({
@@ -272,7 +272,7 @@ export default function StockOverview() {
                       <span style={{ color: pctColor(c.change_pct), fontWeight: "bold", fontSize: 13 }}>{fmtPct(c.change_pct)}</span>
                     </span>
                     <span style={{ color: "#999", fontSize: 12 }}>
-                      领涨: {c.leading_stock}
+                      领涨: {c.leading_stock_code ? <StockLink code={c.leading_stock_code} name={c.leading_stock}>{c.leading_stock}</StockLink> : c.leading_stock}
                       {c.leading_stock_change_pct != null && (
                         <span style={{ color: pctColor(c.leading_stock_change_pct), marginLeft: 4 }}>{fmtPct(c.leading_stock_change_pct)}</span>
                       )}
@@ -290,7 +290,7 @@ export default function StockOverview() {
                       <span style={{ color: pctColor(c.change_pct), fontWeight: "bold", fontSize: 13 }}>{fmtPct(c.change_pct)}</span>
                     </span>
                     <span style={{ color: "#999", fontSize: 12 }}>
-                      领涨: {c.leading_stock}
+                      领涨: {c.leading_stock_code ? <StockLink code={c.leading_stock_code} name={c.leading_stock}>{c.leading_stock}</StockLink> : c.leading_stock}
                       {c.leading_stock_change_pct != null && (
                         <span style={{ color: pctColor(c.leading_stock_change_pct), marginLeft: 4 }}>{fmtPct(c.leading_stock_change_pct)}</span>
                       )}

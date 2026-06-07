@@ -385,6 +385,7 @@ export interface HotConceptItem {
   change_pct: number | null;
   main_net_inflow: number | null;
   leading_stock: string;
+  leading_stock_code: string;
   leading_stock_change_pct: number | null;
 }
 

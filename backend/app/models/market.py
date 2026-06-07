@@ -289,6 +289,7 @@ class HotConceptItem(BaseModel):
     change_pct: float | None = None
     main_net_inflow: float | None = None
     leading_stock: str = ""
+    leading_stock_code: str = ""
     leading_stock_change_pct: float | None = None
 
 
