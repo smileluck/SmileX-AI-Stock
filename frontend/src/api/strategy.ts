@@ -103,3 +103,10 @@ export async function fetchStrategyTypes(): Promise<StrategyTypeInfo[]> {
   const { data } = await client.get("/strategy/types");
   return data;
 }
+
+export async function fetchActiveStrategy(
+  type: string
+): Promise<StrategyItem | null> {
+  const { data } = await client.get(`/strategy/active/${type}`);
+  return data;
+}

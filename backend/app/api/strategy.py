@@ -18,6 +18,7 @@ from app.services.strategy import (
     toggle_strategy,
     duplicate_strategy,
     run_strategy_test,
+    get_active_strategy_by_type,
 )
 
 router = APIRouter(prefix="/strategy", tags=["strategy"])
@@ -26,6 +27,12 @@ router = APIRouter(prefix="/strategy", tags=["strategy"])
 @router.get("/types")
 def get_strategy_types():
     return [StrategyTypeInfo(key=k, **v) for k, v in STRATEGY_TYPES.items()]
+
+
+@router.get("/active/{strategy_type}", response_model=StrategyItem | None)
+def api_get_active_strategy(strategy_type: str):
+    item = get_active_strategy_by_type(strategy_type)
+    return StrategyItem(**item) if item else None
 
 
 @router.get("/list", response_model=StrategyListResponse)

@@ -4,6 +4,7 @@ from datetime import datetime
 from app.database import get_connection
 from app.services import llm
 from app.services.sector import get_sector_history_by_date
+from app.services.strategy import get_strategy_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ def generate_sector_analysis(trade_date: str | None = None) -> dict:
         context = _build_sector_context(trade_date)
 
         messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": get_strategy_prompt("sector_analysis", _SYSTEM_PROMPT)},
             {"role": "user", "content": context},
         ]
         analysis_text = llm.analysis_chat(messages)

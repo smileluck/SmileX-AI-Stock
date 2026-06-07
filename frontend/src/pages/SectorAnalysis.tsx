@@ -9,6 +9,8 @@ import {
   fetchSectorAnalysisHistory,
   triggerSectorAnalysis,
 } from "../api/sectorAnalysis";
+import { fetchActiveStrategy } from "../api/strategy";
+import type { StrategyItem } from "../api/strategy";
 import type { SectorAnalysisItem } from "../types";
 
 function SectorAnalysisTab() {
@@ -19,6 +21,7 @@ function SectorAnalysisTab() {
   const [historyItems, setHistoryItems] = useState<SectorAnalysisItem[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [activeStrategy, setActiveStrategy] = useState<StrategyItem | null>(null);
   const pageSize = 10;
 
   const loadLatest = useCallback(async () => {
@@ -46,6 +49,9 @@ function SectorAnalysisTab() {
 
   useEffect(() => { loadLatest(); }, [loadLatest]);
   useEffect(() => { loadHistory(); }, [loadHistory]);
+  useEffect(() => {
+    fetchActiveStrategy("sector_analysis").then(setActiveStrategy).catch(() => {});
+  }, []);
 
   const handleGenerate = async (date?: string) => {
     setGenerating(true);
@@ -121,7 +127,17 @@ function SectorAnalysisTab() {
 export default function SectorAnalysis() {
   return (
     <div>
-      <Typography.Title level={4} style={{ marginBottom: 16 }}>板块AI分析</Typography.Title>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <Typography.Title level={4} style={{ margin: 0 }}>板块AI分析</Typography.Title>
+        {activeStrategy && (
+          <Space>
+            <Tag color="green">当前策略：{activeStrategy.name}</Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              自动分析：工作日 16:00 / 周日 21:00
+            </Typography.Text>
+          </Space>
+        )}
+      </div>
       <SectorAnalysisTab />
     </div>
   );

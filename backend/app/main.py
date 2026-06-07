@@ -52,7 +52,12 @@ async def lifespan(app: FastAPI):
     add_job(
         lambda: generate_sector_analysis(datetime.now().strftime("%Y-%m-%d")),
         job_id="sector_ai_analysis",
-        cron="22 15 * * 1-5",
+        cron="0 16 * * 1-5",
+    )
+    add_job(
+        lambda: generate_sector_analysis(datetime.now().strftime("%Y-%m-%d")),
+        job_id="sector_ai_analysis_sunday",
+        cron="0 21 * * 0",
     )
     add_job(
         lambda: snapshot_limit_up_data(trigger="scheduled"),
