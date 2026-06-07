@@ -76,12 +76,59 @@ def _get_friday_before_weekend(date_str: str) -> str | None:
     return None
 
 
-def _filter_news_by_impact(news_list: list[dict], target_count: int = 30) -> list[dict]:
-    """Use LLM to score and rank news by A-share impact. Returns top N with score and category."""
+def _compute_time_weight(publish_time: str | None, reference_date: datetime) -> float:
+    """Compute a time-based weight for a news item.
+    - More recent news gets higher weight (decay over days)
+    - Base weight is 1.0 for today, decays ~0.15 per day
+    Returns value in [0.3, 1.0]
+    """
+    if not publish_time:
+        return 0.5
+    try:
+        pub_dt = datetime.strptime(publish_time[:19], "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        try:
+            pub_dt = datetime.strptime(publish_time[:10], "%Y-%m-%d")
+        except (ValueError, TypeError):
+            return 0.5
+
+    hours_diff = (reference_date - pub_dt).total_seconds() / 3600
+    if hours_diff < 0:
+        # Future/upcoming event — boost
+        return 1.0
+    # Decay: 0h → 1.0, 24h → 0.85, 48h → 0.70, ..., floor at 0.3
+    weight = max(0.3, 1.0 - hours_diff * 0.006)
+    return round(weight, 2)
+
+
+def _filter_news_by_impact(
+    news_list: list[dict],
+    target_count: int = 30,
+    reference_date: datetime | None = None,
+    is_weekend: bool = False,
+) -> list[dict]:
+    """Use LLM to score and rank news by A-share impact, with time-based weighting.
+    Returns top N with combined score and category."""
     if not news_list:
         return []
 
-    numbered = "\n".join(f"{i+1}. [{n['source']}] {n['title']}" for i, n in enumerate(news_list))
+    now = reference_date or datetime.now()
+
+    # Pre-compute time weights
+    time_weights = [_compute_time_weight(n.get("publish_time"), now) for n in news_list]
+
+    numbered = "\n".join(
+        f"{i+1}. [{n['source']}] {n['title']}"
+        + (f" (发布: {n['publish_time'][:16]})" if n.get("publish_time") else "")
+        for i, n in enumerate(news_list)
+    )
+
+    weekend_hint = (
+        "\n特别注意：这是周末分析，请特别关注涉及下周即将发生的事件"
+        "（如重要经济数据公布、政策会议、期权交割等），这类前瞻性资讯应适当提高评分。"
+        if is_weekend else ""
+    )
+
     prompt = [
         {"role": "system", "content": (
             "你是一位资深A股市场分析师。以下是多条财经新闻标题，请评估每条新闻对A股市场的影响力。\n\n"
@@ -92,6 +139,9 @@ def _filter_news_by_impact(news_list: list[dict], target_count: int = 30) -> lis
             "- 3-4分：影响较小（如一般行业动态、普通公司公告）\n"
             "- 1-2分：几乎无影响\n\n"
             "分类标签：政策变动 / 宏观经济 / 外围市场 / 行业动态 / 资金面 / 公司事件 / 其他\n\n"
+            "注意：发布时间越近的资讯越重要；涉及即将发生的事件（如下周会议、数据公布等前瞻性资讯）"
+            "应适当提高评分，因为它们对近期开盘影响更大。"
+            f"{weekend_hint}\n"
             f"请选出影响值最高的{target_count}条，按影响力从高到低排序，以JSON数组格式返回。格式如下：\n"
             "```json\n"
             '[{"index": 1, "score": 9, "category": "外围市场"}]\n'
@@ -111,18 +161,29 @@ def _filter_news_by_impact(news_list: list[dict], target_count: int = 30) -> lis
                 pass
 
     if not results or not isinstance(results, list):
-        return news_list[:target_count]
+        # Fallback: sort by time weight only
+        ranked = [
+            {**news_list[i], "impact_score": 5, "impact_category": "其他", "time_weight": time_weights[i], "combined_score": round(5 * time_weights[i], 2)}
+            for i in range(min(len(news_list), target_count))
+        ]
+        ranked.sort(key=lambda x: x["combined_score"], reverse=True)
+        return ranked
 
     scored = []
     for item in results:
         idx = item.get("index", 0) - 1
         if 0 <= idx < len(news_list):
+            llm_score = item.get("score", 5)
+            tw = time_weights[idx]
+            combined = round(llm_score * tw, 2)
             scored.append({
                 **news_list[idx],
-                "impact_score": item.get("score", 5),
+                "impact_score": llm_score,
                 "impact_category": item.get("category", "其他"),
+                "time_weight": tw,
+                "combined_score": combined,
             })
-    scored.sort(key=lambda x: x.get("impact_score", 0), reverse=True)
+    scored.sort(key=lambda x: x["combined_score"], reverse=True)
     return scored[:target_count]
 
 
@@ -155,14 +216,17 @@ def get_today_market_context(date_str: str) -> dict:
         except Exception:
             logger.warning("获取 %s 历史数据失败", code, exc_info=True)
 
-    # News: expand date range on weekends (Friday through today)
+    # News: expand date range on weekends (full week: Monday through today)
     recent_news = []
+    ref_dt = datetime.strptime(date_str, "%Y-%m-%d")
     conn = get_connection()
     try:
         if is_weekend:
+            # Monday of the same week
+            monday_str = (ref_dt - timedelta(days=ref_dt.weekday())).strftime("%Y-%m-%d")
             rows = conn.execute(
                 "SELECT title, source, url, publish_time FROM news WHERE date(publish_time) BETWEEN ? AND ? ORDER BY publish_time DESC",
-                (friday_str, date_str),
+                (monday_str, date_str),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -174,17 +238,22 @@ def get_today_market_context(date_str: str) -> dict:
         conn.close()
 
     if is_weekend and len(recent_news) > 30:
-        logger.info("周末模式：从 %d 条新闻中筛选影响值最高的 30 条", len(recent_news))
-        recent_news = _filter_news_by_impact(recent_news, 30)
+        logger.info("周末模式：从 %d 条本周资讯中筛选影响值最高的 30 条（含时间加权）", len(recent_news))
+        recent_news = _filter_news_by_impact(recent_news, 30, reference_date=ref_dt, is_weekend=True)
 
     # Always score news when we have enough for meaningful ranking
     scored_news = []
-    if len(recent_news) >= 5:
-        scored_news = _filter_news_by_impact(recent_news, 30)
-        # Ensure all items have score/category (in case scoring was skipped)
+    if len(recent_news) >= 5 and not (is_weekend and len(recent_news) > 30):
+        # Weekend bulk news already scored above with time weights
+        scored_news = _filter_news_by_impact(recent_news, 30, reference_date=ref_dt, is_weekend=is_weekend)
         for item in scored_news:
             item.setdefault("impact_score", 5)
             item.setdefault("impact_category", "其他")
+            item.setdefault("time_weight", 1.0)
+            item.setdefault("combined_score", item["impact_score"])
+    elif is_weekend and len(recent_news) > 30:
+        # Already scored with time weights in the block above
+        scored_news = recent_news
     else:
         scored_news = recent_news
 
@@ -233,17 +302,26 @@ def build_analysis_prompt(context: dict, previous_prediction: dict | None = None
             lines.append(f"{td['name']}: {closes}")
 
     if context.get("scored_news"):
-        date_label = f"{friday}~{context['date']}周末资讯" if is_weekend else "当日相关新闻"
-        lines.append(f"\n=== {date_label}影响力排行({len(context['scored_news'])}条) ===")
+        date_label = f"本周资讯({context.get('date','')}周末汇总)" if is_weekend else "当日相关新闻"
+        lines.append(f"\n=== {date_label} 影响力排行({len(context['scored_news'])}条) ===")
+        if is_weekend:
+            lines.append("注：综合得分 = 影响力评分 × 时间权重，越近的资讯或涉及即将发生事件的资讯权重越高。")
         for n in context["scored_news"]:
             score = n.get("impact_score", "?")
             cat = n.get("impact_category", "")
-            lines.append(f"[影响力:{score}/10 | {cat}] [{n['source']}] {n['title']}")
+            combined = n.get("combined_score")
+            tw = n.get("time_weight")
+            pub = n.get("publish_time", "")[:16]
+            if combined is not None:
+                lines.append(f"[综合:{combined} | 影响力:{score}/10 | 时间权重:{tw} | {cat}] [{n['source']}] {n['title']} ({pub})")
+            else:
+                lines.append(f"[影响力:{score}/10 | {cat}] [{n['source']}] {n['title']}")
     elif context["recent_news"]:
-        date_label = f"{friday}~{context['date']}周末资讯" if is_weekend else "当日相关新闻"
+        date_label = f"本周资讯({context.get('date','')}周末汇总)" if is_weekend else "当日相关新闻"
         lines.append(f"\n=== {date_label}({len(context['recent_news'])}条) ===")
         for n in context["recent_news"][:30]:
-            lines.append(f"[{n['source']}] {n['title']}")
+            pub = n.get("publish_time", "")[:16]
+            lines.append(f"[{n['source']}] {n['title']} ({pub})" if pub else f"[{n['source']}] {n['title']}")
 
     if previous_prediction:
         lines.append("\n=== 上一个交易日预测（请先复盘） ===")

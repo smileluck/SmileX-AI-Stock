@@ -18,10 +18,9 @@ import {
   ArrowDownOutlined,
   MinusOutlined,
 } from "@ant-design/icons";
-import ReactECharts from "echarts-for-react";
 import { fetchStockOverview } from "../../api/stock";
 import StockLink from "../../components/StockLink";
-import type { StockOverviewResponse, LimitUpItem, StockHotItem, HotStockSource, HotConceptItem, DrivingConcept } from "../../types";
+import type { StockOverviewResponse, StockHotItem, HotStockSource, HotConceptItem, DrivingConcept } from "../../types";
 
 const POSITIVE_COLOR = "#cf1322";
 const NEGATIVE_COLOR = "#3f8600";
@@ -132,73 +131,6 @@ const hotColumns = [
   },
 ];
 
-const limitUpColumns = [
-  {
-    title: "代码",
-    dataIndex: "code",
-    key: "code",
-    width: 90,
-    render: (v: string, r: LimitUpItem) => <StockLink code={v} name={r.name}>{v}</StockLink>,
-  },
-  { title: "名称", dataIndex: "name", key: "name", width: 100 },
-  {
-    title: "最新价",
-    dataIndex: "price",
-    key: "price",
-    render: (v: number | null) => (v != null ? v.toFixed(2) : "--"),
-  },
-  {
-    title: "涨跌幅",
-    dataIndex: "change_pct",
-    key: "change_pct",
-    sorter: (a: LimitUpItem, b: LimitUpItem) => (a.change_pct ?? 0) - (b.change_pct ?? 0),
-    defaultSortOrder: "descend" as const,
-    render: (v: number | null) => <span style={{ color: pctColor(v) }}>{fmtPct(v)}</span>,
-  },
-  {
-    title: "换手率",
-    dataIndex: "turnover_rate",
-    key: "turnover_rate",
-    render: (v: number | null) => (v != null ? `${v.toFixed(2)}%` : "--"),
-  },
-  {
-    title: "成交额",
-    dataIndex: "amount",
-    key: "amount",
-    sorter: (a: LimitUpItem, b: LimitUpItem) => (a.amount ?? 0) - (b.amount ?? 0),
-    render: (v: number | null) => fmtAmount(v),
-  },
-  {
-    title: "连板数",
-    dataIndex: "limit_up_times",
-    key: "limit_up_times",
-    sorter: (a: LimitUpItem, b: LimitUpItem) => a.limit_up_times - b.limit_up_times,
-    render: (v: number) => (v > 1 ? <span style={{ color: POSITIVE_COLOR, fontWeight: "bold" }}>{v}</span> : v),
-  },
-  { title: "行业", dataIndex: "sector", key: "sector", width: 100 },
-];
-
-function sectorChartOption(items: LimitUpItem[]) {
-  const sectorMap: Record<string, number> = {};
-  for (const item of items) {
-    const s = item.sector || "其他";
-    sectorMap[s] = (sectorMap[s] || 0) + 1;
-  }
-  const sorted = Object.entries(sectorMap).sort((a, b) => b[1] - a[1]).slice(0, 15);
-
-  return {
-    tooltip: { trigger: "axis" as const },
-    grid: { left: 100, right: 20, top: 10, bottom: 30 },
-    xAxis: { type: "value" as const },
-    yAxis: { type: "category" as const, data: sorted.map(([name]) => name).reverse(), inverse: true },
-    series: [{
-      type: "bar" as const,
-      data: sorted.map(([, count]) => count).reverse(),
-      itemStyle: { color: POSITIVE_COLOR },
-    }],
-  };
-}
-
 export default function StockOverview() {
   const [data, setData] = useState<StockOverviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -224,7 +156,6 @@ export default function StockOverview() {
   }, [loadData]);
 
   const s = data?.sentiment;
-  const lu = data?.limit_up;
   const hotSources: HotStockSource[] = s?.hot_stocks ?? [];
   const hotConcepts: HotConceptItem[] = s?.hot_concepts ?? [];
   const topConcepts = hotConcepts.filter((c) => c.sector_type === "concept").slice(0, 5);
@@ -334,32 +265,7 @@ export default function StockOverview() {
           </Row>
         )}
 
-        <Tabs defaultActiveKey={hotTabItems[0]?.key} items={[
-          {
-            key: "hot",
-            label: `热门个股 (${hotSources.length})`,
-            children: <Tabs items={hotTabItems} />,
-          },
-          {
-            key: "limitup",
-            label: `涨停概览 (${lu?.item_count ?? 0})`,
-            children: (
-              <>
-                {lu && lu.items.length > 0 && (
-                  <ReactECharts option={sectorChartOption(lu.items)} style={{ height: 300, marginBottom: 16 }} notMerge lazyUpdate />
-                )}
-                <Table
-                  dataSource={lu?.items ?? []}
-                  columns={limitUpColumns}
-                  rowKey="code"
-                  size="small"
-                  pagination={{ pageSize: 15, showSizeChanger: false }}
-                  scroll={{ x: 800 }}
-                />
-              </>
-            ),
-          },
-        ]} />
+        <Tabs defaultActiveKey={hotTabItems[0]?.key} items={hotTabItems} />
       </Spin>
     </div>
   );
