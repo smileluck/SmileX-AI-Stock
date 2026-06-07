@@ -5,6 +5,7 @@ from datetime import datetime
 
 import akshare as ak
 import requests
+from lxml import etree
 
 from app.config import MODEL_ANALYSIS
 from app.database import get_connection
@@ -235,6 +236,101 @@ def _fetch_hot_em(top_n: int) -> list[dict]:
         return []
 
 
+def _fetch_hot_em_surge(top_n: int) -> list[dict]:
+    """东方财富飙升榜"""
+    try:
+        df = ak.stock_hot_up_em()
+        if df is None or df.empty:
+            return []
+        items = []
+        for idx, row in df.head(top_n).iterrows():
+            items.append({
+                "code": _strip_code(str(row.get("代码", ""))),
+                "name": str(row.get("股票名称", "")),
+                "price": _parse_float(row.get("最新价")),
+                "change_pct": _round2(_parse_float(row.get("涨跌幅"))),
+                "hot_rank": int(_parse_float(row.get("当前排名")) or (idx + 1)),
+                "turnover_rate": None,
+                "amount": None,
+                "volume": None,
+                "net_inflow": None,
+                "industry": "",
+                "limit_up_tag": "",
+            })
+        items = _enrich_from_sina(items)
+        return items
+    except Exception:
+        logger.debug("东方财富飙升榜获取失败", exc_info=True)
+        return []
+
+
+def _parse_ths_amount(val: str) -> float | None:
+    """Parse THS amount string like '13.83亿' or '9389.91万'."""
+    if not val or val == "--":
+        return None
+    val = val.strip()
+    try:
+        if val.endswith("亿"):
+            return float(val[:-1]) * 1_0000_0000
+        if val.endswith("万"):
+            return float(val[:-1]) * 1_0000
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
+_THS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "http://q.10jqka.com.cn/",
+}
+
+
+def _fetch_hot_ths(top_n: int) -> list[dict]:
+    """同花顺涨幅排行"""
+    try:
+        r = requests.get(
+            "http://q.10jqka.com.cn/index/index/board/all/field/zdf/order/desc/page/1/ajax/1/",
+            headers=_THS_HEADERS,
+            timeout=10,
+        )
+        r.raise_for_status()
+        parser = etree.HTMLParser(encoding="gbk")
+        tree = etree.HTML(r.content, parser=parser)
+        rows = tree.xpath("//table/tbody/tr")
+        if not rows:
+            return []
+    except Exception:
+        logger.debug("同花顺涨幅排行获取失败", exc_info=True)
+        return []
+
+    items = []
+    for row in rows[:top_n]:
+        tds = row.xpath(".//td")
+        vals = [td.xpath("string(.)").strip() for td in tds]
+        if len(vals) < 11:
+            continue
+        code = vals[1]
+        name = vals[2]
+        if not code or not name:
+            continue
+        pct = _round2(_parse_float(vals[4]))
+        items.append({
+            "code": code,
+            "name": name,
+            "price": _parse_float(vals[3]),
+            "change_pct": pct,
+            "hot_rank": len(items) + 1,
+            "turnover_rate": _round2(_parse_float(vals[7])),
+            "amount": _parse_ths_amount(vals[10]),
+            "volume": None,
+            "net_inflow": None,
+            "industry": "",
+            "limit_up_tag": "涨停" if (pct or 0) >= 9.9 else "",
+        })
+    items = _enrich_from_sina(items)
+    return items
+
+
 def _fetch_hot_xq(order_by: str, top_n: int) -> list[dict]:
     """雪球热度排行 - 直接 HTTP 请求，只取一页"""
     try:
@@ -286,6 +382,16 @@ def get_stock_hot_rank(top_n: int = 20) -> list[dict]:
     if em_items:
         result.append({"source": "东方财富人气", "items": em_items})
         logger.info("热门个股 [东方财富人气]: %d 条", len(em_items))
+
+    em_surge = _fetch_hot_em_surge(top_n)
+    if em_surge:
+        result.append({"source": "东方财富飙升", "items": em_surge})
+        logger.info("热门个股 [东方财富飙升]: %d 条", len(em_surge))
+
+    ths_items = _fetch_hot_ths(top_n)
+    if ths_items:
+        result.append({"source": "同花顺涨幅", "items": ths_items})
+        logger.info("热门个股 [同花顺涨幅]: %d 条", len(ths_items))
 
     xq_follow = _fetch_hot_xq("follow", top_n)
     if xq_follow:
