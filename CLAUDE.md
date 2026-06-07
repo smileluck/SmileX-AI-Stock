@@ -37,6 +37,7 @@ A股智能分析系统，基于 FastAPI + React + LiteLLM。
 | `news_sync` | 每 5 分钟 | 从 14 个新闻源抓取 |
 | `daily_market_analysis` | 工作日 15:15 | 指数分析 + 次日预测 |
 | `sector_snapshot` | 工作日 15:20 | 板块快照 + 资金流 |
+| `sector_ai_analysis` | 工作日 15:22 | 板块AI分析 |
 | `ai_daily_report` | 工作日 15:25 | AI 综合收盘报告 |
 | `limit_up_snapshot` | 工作日 15:30 | 涨停股快照 |
 | `stock_recommendation` | 工作日 15:35 | AI 个股推荐生成 |
@@ -52,8 +53,9 @@ SQLite，位于 `backend/data/stock.db`。Schema 定义在 `backend/app/database
 ## 前端路由
 
 - `/market` — 大盘总览
-- `/market/analysis` — AI 每日分析（含"每日分析和预测" + "收盘分析"两个 Tab）
 - `/market/history` — 历史行情
+- `/analysis/market` — 大盘AI分析（含"每日分析和预测" + "收盘分析"两个 Tab）
+- `/analysis/sector` — 板块AI分析
 - `/sector/today` — 板块总览
 - `/sector/history` — 板块历史
 - `/stock/overview` — 个股分析总览

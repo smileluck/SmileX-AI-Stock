@@ -146,6 +146,18 @@ CREATE TABLE IF NOT EXISTS stock_recommendation (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sr_date_code ON stock_recommendation(trade_date, code);
 CREATE INDEX IF NOT EXISTS idx_sr_date ON stock_recommendation(trade_date);
 CREATE INDEX IF NOT EXISTS idx_sr_status ON stock_recommendation(status);
+
+CREATE TABLE IF NOT EXISTS sector_analysis (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date    TEXT UNIQUE NOT NULL,
+    sector_type   TEXT NOT NULL DEFAULT 'all',
+    analysis_text TEXT NOT NULL DEFAULT '',
+    model_used    TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'pending',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_saan_date ON sector_analysis(trade_date);
 """
 
 

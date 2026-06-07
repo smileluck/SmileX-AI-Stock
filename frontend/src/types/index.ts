@@ -376,6 +376,7 @@ export interface StockHotItem {
   net_inflow: number | null;
   industry: string;
   driving_concepts: DrivingConcept[];
+  concepts: string[];
   source: string;
 }
 
@@ -445,5 +446,29 @@ export interface GenerateRecommendationResponse {
   message: string;
   data: RecommendationItem[] | null;
   total: number;
+}
+
+// --- Sector AI Analysis ---
+
+export interface SectorAnalysisItem {
+  id: number;
+  trade_date: string;
+  sector_type: string;
+  analysis_text: string;
+  model_used: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SectorAnalysisResponse {
+  items: SectorAnalysisItem[];
+  total: number;
+}
+
+export interface GenerateSectorAnalysisResponse {
+  success: boolean;
+  message: string;
+  data: SectorAnalysisItem | null;
 }
 

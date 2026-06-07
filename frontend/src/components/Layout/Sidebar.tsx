@@ -25,8 +25,16 @@ const menuItems = [
     label: "大盘",
     children: [
       { key: "/market", icon: <DashboardOutlined />, label: "大盘概览" },
-      { key: "/market/analysis", icon: <BulbOutlined />, label: "AI 分析" },
       { key: "/market/history", icon: <HistoryOutlined />, label: "历史大盘" },
+    ],
+  },
+  {
+    key: "/analysis",
+    icon: <BulbOutlined />,
+    label: "AI 分析",
+    children: [
+      { key: "/analysis/market", icon: <FundOutlined />, label: "大盘分析" },
+      { key: "/analysis/sector", icon: <PieChartOutlined />, label: "板块分析" },
     ],
   },
   { key: "/news", icon: <ReadOutlined />, label: "资讯聚合" },
@@ -68,6 +76,7 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [openKeys, setOpenKeys] = useState<string[]>(() => {
+    if (location.pathname.startsWith("/analysis")) return ["/analysis"];
     if (location.pathname.startsWith("/market")) return ["/market"];
     if (location.pathname.startsWith("/sector")) return ["/sector"];
     if (location.pathname.startsWith("/stock")) return ["/stock"];

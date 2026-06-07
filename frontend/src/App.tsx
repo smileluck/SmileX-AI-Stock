@@ -5,6 +5,7 @@ import MarketHistory from "./pages/MarketHistory";
 import MarketAnalysis from "./pages/MarketAnalysis";
 import SectorOverview from "./pages/SectorOverview";
 import SectorHistory from "./pages/SectorHistory";
+import SectorAnalysis from "./pages/SectorAnalysis";
 import NewsPage from "./pages/News";
 import SchedulerPage from "./pages/Scheduler";
 import LLMConfig from "./pages/LLMConfig";
@@ -21,8 +22,11 @@ function App() {
         <Route element={<AppLayout />}>
           <Route path="/" element={<Navigate to="/market" replace />} />
           <Route path="/market" element={<Dashboard />} />
-          <Route path="/market/analysis" element={<MarketAnalysis />} />
+          <Route path="/market/analysis" element={<Navigate to="/analysis/market" replace />} />
           <Route path="/market/history" element={<MarketHistory />} />
+          <Route path="/analysis" element={<Navigate to="/analysis/market" replace />} />
+          <Route path="/analysis/market" element={<MarketAnalysis />} />
+          <Route path="/analysis/sector" element={<SectorAnalysis />} />
           <Route path="/sector" element={<Navigate to="/sector/today" replace />} />
           <Route path="/sector/today" element={<SectorOverview />} />
           <Route path="/sector/history" element={<SectorHistory />} />

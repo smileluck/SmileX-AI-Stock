@@ -11,11 +11,13 @@ from app.api.proxy import router as proxy_router
 from app.api.chat import router as chat_router
 from app.api.ai_daily_report import router as ai_report_router
 from app.api.stock import router as stock_router
+from app.api.sector_analysis import router as sector_analysis_router
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
 from app.services.sector import snapshot_sector_data
 from app.services.ai_daily_report import generate_ai_daily_report
+from app.services.sector_analysis import generate_sector_analysis
 from app.services.stock import snapshot_limit_up_data, generate_recommendations
 
 SYNC_INTERVAL_SECONDS = 300
@@ -42,6 +44,11 @@ async def lifespan(app: FastAPI):
         lambda: generate_ai_daily_report(datetime.now().strftime("%Y-%m-%d")),
         job_id="ai_daily_report",
         cron="25 15 * * 1-5",
+    )
+    add_job(
+        lambda: generate_sector_analysis(datetime.now().strftime("%Y-%m-%d")),
+        job_id="sector_ai_analysis",
+        cron="22 15 * * 1-5",
     )
     add_job(
         lambda: snapshot_limit_up_data(trigger="scheduled"),
@@ -74,3 +81,4 @@ app.include_router(proxy_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(ai_report_router, prefix="/api/v1")
 app.include_router(stock_router, prefix="/api/v1")
+app.include_router(sector_analysis_router, prefix="/api/v1")

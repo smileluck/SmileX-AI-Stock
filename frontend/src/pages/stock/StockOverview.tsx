@@ -114,6 +114,22 @@ const hotColumns = [
       );
     },
   },
+  {
+    title: "所属板块",
+    dataIndex: "concepts",
+    key: "concepts",
+    width: 200,
+    render: (v: string[]) => {
+      if (!v || v.length === 0) return <span style={{ color: "#999" }}>--</span>;
+      return (
+        <span style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+          {v.map((c) => (
+            <Tag key={c} style={{ fontSize: 11, margin: 0 }}>{c}</Tag>
+          ))}
+        </span>
+      );
+    },
+  },
 ];
 
 const limitUpColumns = [

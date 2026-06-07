@@ -263,6 +263,11 @@ class LimitUpResponse(BaseModel):
 
 # --- Stock: Hot & Sentiment ---
 
+class DrivingConcept(BaseModel):
+    name: str
+    change_pct: float
+
+
 class StockHotItem(BaseModel):
     code: str
     name: str
@@ -274,7 +279,8 @@ class StockHotItem(BaseModel):
     volume: float | None = None
     net_inflow: float | None = None
     industry: str = ""
-    limit_up_tag: str = ""
+    driving_concepts: list[DrivingConcept] = []
+    concepts: list[str] = []
     source: str = ""
 
 
@@ -344,3 +350,31 @@ class GenerateRecommendationResponse(BaseModel):
     message: str
     data: list[RecommendationItem] | None = None
     total: int = 0
+
+
+# --- Sector AI Analysis ---
+
+class SectorAnalysisItem(BaseModel):
+    id: int
+    trade_date: str
+    sector_type: str
+    analysis_text: str
+    model_used: str
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class SectorAnalysisResponse(BaseModel):
+    items: list[SectorAnalysisItem]
+    total: int
+
+
+class GenerateSectorAnalysisRequest(BaseModel):
+    trade_date: str | None = None
+
+
+class GenerateSectorAnalysisResponse(BaseModel):
+    success: bool
+    message: str
+    data: SectorAnalysisItem | None = None

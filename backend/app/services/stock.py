@@ -344,6 +344,7 @@ def _enrich_driving_concepts(items: list[dict], top_k: int = 3) -> list[dict]:
 
         matched.sort(key=lambda x: x["change_pct"], reverse=True)
         item["driving_concepts"] = matched[:top_k]
+        item["concepts"] = tags[:8]
     return items
 
 
