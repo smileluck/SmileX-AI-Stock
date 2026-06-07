@@ -248,7 +248,52 @@ def _fetch_ths_concept_capital_flow() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Source 3: DB snapshot fallback
+# Source 3: Sina (新浪财经)
+# ---------------------------------------------------------------------------
+
+_SINA_URL = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/MoneyFlow.ssl_bkzj_bk"
+
+_SINA_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Referer": "https://finance.sina.com.cn/",
+}
+
+
+def _fetch_sina_capital_flow(fenlei: int) -> list[dict]:
+    """Fetch sector capital flow from Sina. fenlei=0: industry, fenlei=1: concept."""
+    try:
+        r = requests.get(
+            _SINA_URL,
+            params={"page": 1, "num": 500, "sort": "netamount", "asc": 0, "fenlei": fenlei},
+            headers=_SINA_HEADERS,
+            timeout=20,
+        )
+        r.raise_for_status()
+        items = r.json()
+    except Exception:
+        logger.debug("Sina capital flow fetch failed (fenlei=%d)", fenlei, exc_info=True)
+        return []
+
+    results = []
+    for item in items:
+        ratio = _parse_float(item.get("ratioamount"))
+        chg = _parse_float(item.get("avg_changeratio"))
+        results.append({
+            "code": "",
+            "name": item.get("name", ""),
+            "main_net_inflow": _parse_float(item.get("netamount")),
+            "main_net_inflow_pct": _round2(ratio * 100) if ratio is not None else None,
+            "change_pct": _round2(chg * 100) if chg is not None else None,
+            "super_large_net": None,
+            "large_net": None,
+            "medium_net": None,
+            "small_net": None,
+        })
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Source 4: DB snapshot fallback
 # ---------------------------------------------------------------------------
 
 def _get_latest_snapshot(sector_type: str) -> list[dict]:
@@ -323,6 +368,12 @@ def _get_industry_capital_flow() -> list[dict]:
         logger.info("Industry capital flow from East Money (%d items)", len(raw))
         return [_parse_em_capital_flow(i) for i in raw]
 
+    # Sina fallback
+    data = _fetch_sina_capital_flow(0)
+    if data:
+        logger.info("Industry capital flow from Sina (%d items)", len(data))
+        return data
+
     # DB fallback
     data = _get_latest_snapshot("industry")
     if data:
@@ -342,6 +393,12 @@ def _get_concept_capital_flow() -> list[dict]:
     if raw:
         logger.info("Concept capital flow from East Money (%d items)", len(raw))
         return [_parse_em_capital_flow(i) for i in raw]
+
+    # Sina fallback
+    data = _fetch_sina_capital_flow(1)
+    if data:
+        logger.info("Concept capital flow from Sina (%d items)", len(data))
+        return data
 
     # DB fallback
     data = _get_latest_snapshot("concept")
@@ -388,7 +445,7 @@ def snapshot_sector_data(trade_date: str | None = None, trigger: str = "manual")
             flow_items = {item["code"]: item for item in flow[sector_type] if item.get("code")}
 
             # For THS data where code is empty, use name as key
-            if not overview_items and overview[sector_type]:
+            if (not overview_items or not flow_items) and (overview[sector_type] or flow[sector_type]):
                 overview_items = {item["name"]: item for item in overview[sector_type] if item.get("name")}
                 flow_items = {item["name"]: item for item in flow[sector_type] if item.get("name")}
 
