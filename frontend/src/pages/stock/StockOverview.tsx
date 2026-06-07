@@ -19,6 +19,7 @@ import {
 } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import { fetchStockOverview } from "../../api/stock";
+import StockLink from "../../components/StockLink";
 import type { StockOverviewResponse, LimitUpItem, StockHotItem } from "../../types";
 
 const POSITIVE_COLOR = "#cf1322";
@@ -47,7 +48,13 @@ const hotColumns = [
     width: 60,
     render: (_: unknown, __: unknown, idx: number) => idx + 1,
   },
-  { title: "代码", dataIndex: "code", key: "code", width: 90 },
+  {
+    title: "代码",
+    dataIndex: "code",
+    key: "code",
+    width: 90,
+    render: (v: string, r: StockHotItem) => <StockLink code={v} name={r.name}>{v}</StockLink>,
+  },
   { title: "名称", dataIndex: "name", key: "name", width: 100 },
   {
     title: "最新价",
@@ -77,7 +84,13 @@ const hotColumns = [
 ];
 
 const limitUpColumns = [
-  { title: "代码", dataIndex: "code", key: "code", width: 90 },
+  {
+    title: "代码",
+    dataIndex: "code",
+    key: "code",
+    width: 90,
+    render: (v: string, r: LimitUpItem) => <StockLink code={v} name={r.name}>{v}</StockLink>,
+  },
   { title: "名称", dataIndex: "name", key: "name", width: 100 },
   {
     title: "最新价",

@@ -13,6 +13,7 @@ import {
 import { SyncOutlined, BulbOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { fetchRecommendations, triggerRecommendationGeneration } from "../../api/stock";
+import StockLink from "../../components/StockLink";
 import type { RecommendationListResponse, RecommendationItem } from "../../types";
 
 const POSITIVE_COLOR = "#cf1322";
@@ -30,7 +31,13 @@ const riskColors: Record<string, string> = {
 };
 
 const columns = [
-  { title: "代码", dataIndex: "code", key: "code", width: 90 },
+  {
+    title: "代码",
+    dataIndex: "code",
+    key: "code",
+    width: 90,
+    render: (v: string, r: RecommendationItem) => <StockLink code={v} name={r.name}>{v}</StockLink>,
+  },
   { title: "名称", dataIndex: "name", key: "name", width: 100 },
   { title: "行业", dataIndex: "sector", key: "sector", width: 100 },
   {

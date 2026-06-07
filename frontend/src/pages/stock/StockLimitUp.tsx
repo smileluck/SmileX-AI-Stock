@@ -16,6 +16,7 @@ import { SyncOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import dayjs from "dayjs";
 import { fetchLimitUp, triggerLimitUpSnapshot } from "../../api/stock";
+import StockLink from "../../components/StockLink";
 import type { LimitUpResponse, LimitUpItem } from "../../types";
 
 const POSITIVE_COLOR = "#cf1322";
@@ -33,7 +34,13 @@ function fmtPct(v: number | null): string {
 }
 
 const columns = [
-  { title: "代码", dataIndex: "code", key: "code", width: 90 },
+  {
+    title: "代码",
+    dataIndex: "code",
+    key: "code",
+    width: 90,
+    render: (v: string, r: LimitUpItem) => <StockLink code={v} name={r.name}>{v}</StockLink>,
+  },
   { title: "名称", dataIndex: "name", key: "name", width: 100 },
   {
     title: "最新价",
