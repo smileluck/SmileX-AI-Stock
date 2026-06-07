@@ -271,6 +271,12 @@ class StockHotItem(BaseModel):
     hot_rank: int | None = None
     turnover_rate: float | None = None
     amount: float | None = None
+    source: str = ""
+
+
+class HotStockSource(BaseModel):
+    source: str
+    items: list[StockHotItem]
 
 
 class MarketSentimentResponse(BaseModel):
@@ -280,7 +286,7 @@ class MarketSentimentResponse(BaseModel):
     limit_up_count: int = 0
     limit_down_count: int = 0
     sentiment_score: float | None = None
-    hot_stocks: list[StockHotItem] = []
+    hot_stocks: list[HotStockSource] = []
     fetch_time: str
 
 

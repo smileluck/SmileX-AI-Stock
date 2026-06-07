@@ -367,6 +367,12 @@ export interface StockHotItem {
   hot_rank: number | null;
   turnover_rate: number | null;
   amount: number | null;
+  source: string;
+}
+
+export interface HotStockSource {
+  source: string;
+  items: StockHotItem[];
 }
 
 export interface MarketSentimentResponse {
@@ -376,7 +382,7 @@ export interface MarketSentimentResponse {
   limit_up_count: number;
   limit_down_count: number;
   sentiment_score: number | null;
-  hot_stocks: StockHotItem[];
+  hot_stocks: HotStockSource[];
   fetch_time: string;
 }
 

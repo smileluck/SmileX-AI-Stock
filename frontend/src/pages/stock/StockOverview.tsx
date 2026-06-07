@@ -20,7 +20,7 @@ import {
 import ReactECharts from "echarts-for-react";
 import { fetchStockOverview } from "../../api/stock";
 import StockLink from "../../components/StockLink";
-import type { StockOverviewResponse, LimitUpItem, StockHotItem } from "../../types";
+import type { StockOverviewResponse, LimitUpItem, StockHotItem, HotStockSource } from "../../types";
 
 const POSITIVE_COLOR = "#cf1322";
 const NEGATIVE_COLOR = "#3f8600";
@@ -68,18 +68,6 @@ const hotColumns = [
     key: "change_pct",
     sorter: (a: StockHotItem, b: StockHotItem) => (a.change_pct ?? 0) - (b.change_pct ?? 0),
     render: (v: number | null) => <span style={{ color: pctColor(v) }}>{fmtPct(v)}</span>,
-  },
-  {
-    title: "换手率",
-    dataIndex: "turnover_rate",
-    key: "turnover_rate",
-    render: (v: number | null) => (v != null ? `${v.toFixed(2)}%` : "--"),
-  },
-  {
-    title: "成交额",
-    dataIndex: "amount",
-    key: "amount",
-    render: (v: number | null) => fmtAmount(v),
   },
 ];
 
@@ -176,6 +164,23 @@ export default function StockOverview() {
 
   const s = data?.sentiment;
   const lu = data?.limit_up;
+  const hotSources: HotStockSource[] = s?.hot_stocks ?? [];
+
+  const hotTabItems = hotSources.length > 0
+    ? hotSources.map((src) => ({
+        key: `hot_${src.source}`,
+        label: src.source,
+        children: (
+          <Table
+            dataSource={src.items}
+            columns={hotColumns}
+            rowKey="code"
+            size="small"
+            pagination={{ pageSize: 15, showSizeChanger: false }}
+          />
+        ),
+      }))
+    : [{ key: "hot_empty", label: "热门个股", children: <div style={{ color: "#999", textAlign: "center", padding: 24 }}>暂无数据</div> }];
 
   return (
     <div>
@@ -190,7 +195,6 @@ export default function StockOverview() {
       {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
 
       <Spin spinning={loading && !data}>
-        {/* Sentiment Stats */}
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={4}>
             <Card size="small"><Statistic title="上涨" value={s?.up_count ?? 0} valueStyle={{ color: POSITIVE_COLOR }} prefix={<ArrowUpOutlined />} /></Card>
@@ -219,19 +223,11 @@ export default function StockOverview() {
           </Col>
         </Row>
 
-        <Tabs defaultActiveKey="hot" items={[
+        <Tabs defaultActiveKey={hotTabItems[0]?.key} items={[
           {
             key: "hot",
-            label: "热门个股",
-            children: (
-              <Table
-                dataSource={s?.hot_stocks ?? []}
-                columns={hotColumns}
-                rowKey="code"
-                size="small"
-                pagination={{ pageSize: 15, showSizeChanger: false }}
-              />
-            ),
+            label: `热门个股 (${hotSources.length})`,
+            children: <Tabs items={hotTabItems} />,
           },
           {
             key: "limitup",

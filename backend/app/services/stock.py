@@ -134,30 +134,126 @@ def get_limit_up_by_date(trade_date: str) -> dict:
 # Hot Stocks & Market Sentiment
 # ---------------------------------------------------------------------------
 
-def get_stock_hot_rank(top_n: int = 20) -> list[dict]:
-    """Fetch stock popularity ranking from akshare."""
+def _strip_code(raw_code: str) -> str:
+    """Strip market prefix like SZ/SH from stock code."""
+    if len(raw_code) > 2 and raw_code[:2] in ("SZ", "SH"):
+        return raw_code[2:]
+    return raw_code
+
+
+def _fetch_hot_em(top_n: int) -> list[dict]:
+    """东方财富个股人气榜"""
     try:
         df = ak.stock_hot_rank_em()
         if df is None or df.empty:
             return []
+        items = []
+        for idx, row in df.head(top_n).iterrows():
+            items.append({
+                "code": _strip_code(str(row.get("代码", ""))),
+                "name": str(row.get("股票名称", "")),
+                "price": _parse_float(row.get("最新价")),
+                "change_pct": _round2(_parse_float(row.get("涨跌幅"))),
+                "hot_rank": int(_parse_float(row.get("当前排名")) or (idx + 1)),
+                "turnover_rate": None,
+                "amount": None,
+                "source": "东方财富",
+            })
+        return items
     except Exception:
-        logger.warning("akshare stock_hot_rank_em failed", exc_info=True)
+        logger.debug("东方财富人气榜获取失败", exc_info=True)
         return []
 
-    items = []
-    for _, row in df.head(top_n).iterrows():
-        raw_code = str(row.get("代码", ""))
-        code = raw_code[2:] if len(raw_code) > 2 and raw_code[:2] in ("SZ", "SH") else raw_code
-        items.append({
-            "code": code,
-            "name": str(row.get("股票名称", "")),
-            "price": _parse_float(row.get("最新价")),
-            "change_pct": _round2(_parse_float(row.get("涨跌幅"))),
-            "hot_rank": int(_parse_float(row.get("当前排名")) or 0),
-            "turnover_rate": None,
-            "amount": None,
-        })
-    return items
+
+def _fetch_hot_xq_follow(top_n: int) -> list[dict]:
+    """雪球关注排行榜"""
+    try:
+        df = ak.stock_hot_follow_xq(symbol="最热门")
+        if df is None or df.empty:
+            return []
+        items = []
+        for idx, row in df.head(top_n).iterrows():
+            items.append({
+                "code": _strip_code(str(row.get("股票代码", ""))),
+                "name": str(row.get("股票简称", "")),
+                "price": _parse_float(row.get("最新价")),
+                "change_pct": None,
+                "hot_rank": idx + 1,
+                "turnover_rate": None,
+                "amount": None,
+                "source": "雪球",
+            })
+        return items
+    except Exception:
+        logger.debug("雪球关注榜获取失败", exc_info=True)
+        return []
+
+
+def _fetch_hot_xq_tweet(top_n: int) -> list[dict]:
+    """雪球讨论排行榜"""
+    try:
+        df = ak.stock_hot_tweet_xq(symbol="最热门")
+        if df is None or df.empty:
+            return []
+        items = []
+        for idx, row in df.head(top_n).iterrows():
+            items.append({
+                "code": _strip_code(str(row.get("股票代码", ""))),
+                "name": str(row.get("股票简称", "")),
+                "price": _parse_float(row.get("最新价")),
+                "change_pct": None,
+                "hot_rank": idx + 1,
+                "turnover_rate": None,
+                "amount": None,
+                "source": "雪球",
+            })
+        return items
+    except Exception:
+        logger.debug("雪球讨论榜获取失败", exc_info=True)
+        return []
+
+
+def _fetch_hot_xq_deal(top_n: int) -> list[dict]:
+    """雪球交易分享排行榜"""
+    try:
+        df = ak.stock_hot_deal_xq(symbol="最热门")
+        if df is None or df.empty:
+            return []
+        items = []
+        for idx, row in df.head(top_n).iterrows():
+            items.append({
+                "code": _strip_code(str(row.get("股票代码", ""))),
+                "name": str(row.get("股票简称", "")),
+                "price": _parse_float(row.get("最新价")),
+                "change_pct": None,
+                "hot_rank": idx + 1,
+                "turnover_rate": None,
+                "amount": None,
+                "source": "雪球",
+            })
+        return items
+    except Exception:
+        logger.debug("雪球交易榜获取失败", exc_info=True)
+        return []
+
+
+def get_stock_hot_rank(top_n: int = 20) -> list[dict]:
+    """Fetch stock popularity ranking from all sources, returns list of {source, items}."""
+    sources = [
+        ("东方财富人气", lambda: _fetch_hot_em(top_n)),
+        ("雪球关注", lambda: _fetch_hot_xq_follow(top_n)),
+        ("雪球讨论", lambda: _fetch_hot_xq_tweet(top_n)),
+        ("雪球交易", lambda: _fetch_hot_xq_deal(top_n)),
+    ]
+    result = []
+    for name, fn in sources:
+        items = fn()
+        if items:
+            logger.info("热门个股 [%s]: %d 条", name, len(items))
+            result.append({"source": name, "items": items})
+    if not result:
+        logger.warning("所有热门个股数据源均失败")
+    return result
 
 
 def get_market_sentiment() -> dict:
