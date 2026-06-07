@@ -355,6 +355,33 @@ def get_market_sentiment() -> dict:
 
 def _get_hot_concepts(limit: int = 5) -> list[dict]:
     """Get top concepts and industries from DB snapshot."""
+
+    def _resolve_code(name: str) -> str:
+        """Resolve stock name to code via DB or Sina search."""
+        # Try DB first
+        for table in ("limit_up_snapshot", "stock_recommendation"):
+            try:
+                row = conn.execute(f"SELECT code FROM {table} WHERE name = ? LIMIT 1", (name,)).fetchone()
+                if row:
+                    return row["code"]
+            except Exception:
+                pass
+        # Fallback: Sina suggest API
+        try:
+            r = requests.get(
+                f"https://suggest3.sinajs.cn/suggest/type=11,12&key={name}",
+                headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+                timeout=5,
+            )
+            val = r.text.split('="')[1].rstrip('";').strip('"')
+            if val:
+                parts = val.split(",")
+                if len(parts) >= 3:
+                    return parts[2]
+        except Exception:
+            pass
+        return ""
+
     conn = get_connection()
     try:
         date_row = conn.execute(
@@ -386,13 +413,17 @@ def _get_hot_concepts(limit: int = 5) -> list[dict]:
 
         result = []
         for item in concepts + industries:
+            leading_name = item.get("leading_stock") or ""
+            leading_code = item.get("leading_stock_code") or ""
+            if leading_name and not leading_code:
+                leading_code = _resolve_code(leading_name)
             result.append({
                 "name": item.get("name", ""),
                 "sector_type": item.get("sector_type", ""),
                 "change_pct": _round2(item.get("change_pct")),
                 "main_net_inflow": item.get("main_net_inflow"),
-                "leading_stock": item.get("leading_stock") or "",
-                "leading_stock_code": item.get("leading_stock_code") or "",
+                "leading_stock": leading_name,
+                "leading_stock_code": leading_code,
                 "leading_stock_change_pct": _round2(item.get("leading_stock_change_pct")),
             })
         return result

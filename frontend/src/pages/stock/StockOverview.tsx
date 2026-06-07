@@ -272,10 +272,15 @@ export default function StockOverview() {
                       <span style={{ color: pctColor(c.change_pct), fontWeight: "bold", fontSize: 13 }}>{fmtPct(c.change_pct)}</span>
                     </span>
                     <span style={{ color: "#999", fontSize: 12 }}>
-                      领涨: {c.leading_stock_code ? <StockLink code={c.leading_stock_code} name={c.leading_stock}>{c.leading_stock}</StockLink> : c.leading_stock}
-                      {c.leading_stock_change_pct != null && (
-                        <span style={{ color: pctColor(c.leading_stock_change_pct), marginLeft: 4 }}>{fmtPct(c.leading_stock_change_pct)}</span>
-                      )}
+                      {c.leading_stock && c.leading_stock_code ? (
+                        <>领涨: <StockLink code={c.leading_stock_code} name={c.leading_stock}>{c.leading_stock}</StockLink>
+                          {c.leading_stock_change_pct != null && (
+                            <span style={{ color: pctColor(c.leading_stock_change_pct), marginLeft: 4 }}>{fmtPct(c.leading_stock_change_pct)}</span>
+                          )}
+                        </>
+                      ) : c.main_net_inflow != null ? (
+                        <>资金: <span style={{ color: pctColor(c.main_net_inflow) }}>{fmtAmount(c.main_net_inflow)}</span></>
+                      ) : null}
                     </span>
                   </div>
                 ))}
