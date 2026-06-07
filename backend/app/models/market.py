@@ -252,6 +252,7 @@ class LimitUpItem(BaseModel):
     limit_up_times: int = 1
     reason: str = ""
     sector: str = ""
+    board: str = ""
 
 
 class LimitUpResponse(BaseModel):

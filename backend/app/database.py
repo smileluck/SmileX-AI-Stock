@@ -158,6 +158,13 @@ CREATE TABLE IF NOT EXISTS sector_analysis (
     updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_saan_date ON sector_analysis(trade_date);
+
+CREATE TABLE IF NOT EXISTS model_config (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    function_key TEXT UNIQUE NOT NULL,
+    model_name   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
 """
 
 

@@ -8,7 +8,6 @@ import akshare as ak
 import requests
 from lxml import etree
 
-from app.config import MODEL_ANALYSIS
 from app.database import get_connection
 from app.services import llm
 
@@ -22,6 +21,19 @@ def _parse_float(val) -> float | None:
         return float(val)
     except (ValueError, TypeError):
         return None
+
+
+def _classify_board(code: str) -> str:
+    """Classify stock code into board type."""
+    if code.startswith("688"):
+        return "科创板"
+    if code.startswith("60") or code.startswith("00"):
+        return "沪深主板"
+    if code.startswith("30"):
+        return "创业板"
+    if code.startswith("8") or code.startswith("4"):
+        return "北交所"
+    return "其他"
 
 
 def _round2(val) -> float | None:
@@ -47,8 +59,9 @@ def fetch_limit_up_stocks(date: str) -> list[dict]:
 
     items = []
     for _, row in df.iterrows():
+        code = str(row.get("代码", ""))
         items.append({
-            "code": str(row.get("代码", "")),
+            "code": code,
             "name": str(row.get("名称", "")),
             "price": _parse_float(row.get("最新价")),
             "change_pct": _round2(_parse_float(row.get("涨跌幅"))),
@@ -62,6 +75,7 @@ def fetch_limit_up_stocks(date: str) -> list[dict]:
             "limit_up_times": int(_parse_float(row.get("连板数")) or 1),
             "reason": str(row.get("涨停统计", "")) if row.get("涨停统计") else "",
             "sector": str(row.get("所属行业", "")) if row.get("所属行业") else "",
+            "board": _classify_board(code),
         })
     return items
 
@@ -844,7 +858,7 @@ def generate_recommendations(trade_date: str | None = None) -> dict:
                     _parse_float(rec.get("confidence")) or 0.5,
                     rec.get("sector", ""),
                     _parse_float(rec.get("score")) or 0,
-                    MODEL_ANALYSIS,
+                    llm.get_model_for_function("stock_recommendation"),
                     "pending",
                     now,
                     now,

@@ -9,7 +9,6 @@ import pandas as pd
 from app.database import get_connection
 from app.services.market import CN_INDEX_NAMES
 from app.services import llm
-from app.config import MODEL_ANALYSIS
 
 logger = logging.getLogger(__name__)
 
@@ -384,7 +383,7 @@ def generate_daily_analysis(trade_date: str | None = None) -> dict:
                     scored_news=?, model_used=?, status='analyzed', updated_at=?
                 WHERE id=?""",
                 (analysis_part, prediction_part, json.dumps(prediction_summary, ensure_ascii=False),
-                 scored_news_json, MODEL_ANALYSIS, now_str, existing["id"]),
+                 scored_news_json, llm.get_model_for_function("analysis"), now_str, existing["id"]),
             )
         else:
             conn.execute(
@@ -394,7 +393,7 @@ def generate_daily_analysis(trade_date: str | None = None) -> dict:
                 VALUES (?,?,?,?,?,?,'analyzed',?,?)""",
                 (trade_date, analysis_part, prediction_part,
                  json.dumps(prediction_summary, ensure_ascii=False),
-                 scored_news_json, MODEL_ANALYSIS, now_str, now_str),
+                 scored_news_json, llm.get_model_for_function("analysis"), now_str, now_str),
             )
         conn.commit()
 

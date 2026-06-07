@@ -1,6 +1,16 @@
+import logging
+
 from openai import OpenAI
 
 from app.config import LITELLM_PROXY_URL, LITELLM_MASTER_KEY, MODEL_ANALYSIS, MODEL_NEWS_SCORER, MODEL_CHAT
+
+logger = logging.getLogger(__name__)
+
+_ENV_DEFAULTS = {
+    "analysis": MODEL_ANALYSIS,
+    "news_scorer": MODEL_NEWS_SCORER,
+    "chat": MODEL_CHAT,
+}
 
 
 def _get_client() -> OpenAI:
@@ -12,10 +22,32 @@ def _get_client() -> OpenAI:
     return OpenAI(**kwargs)
 
 
+def _resolve_model(function_key: str) -> str:
+    try:
+        from app.database import get_connection
+        conn = get_connection()
+        try:
+            row = conn.execute(
+                "SELECT model_name FROM model_config WHERE function_key = ?",
+                (function_key,),
+            ).fetchone()
+            if row:
+                return row["model_name"]
+        finally:
+            conn.close()
+    except Exception:
+        logger.debug("DB lookup for model_config failed, using env default", exc_info=True)
+    return _ENV_DEFAULTS.get(function_key, "MiniMax-M3")
+
+
+def get_model_for_function(function_key: str) -> str:
+    return _resolve_model(function_key)
+
+
 def chat(messages: list[dict], model: str | None = None, **kwargs) -> str:
     client = _get_client()
     response = client.chat.completions.create(
-        model=model or MODEL_CHAT,
+        model=model or _resolve_model("chat"),
         messages=messages,
         **kwargs,
     )
@@ -23,11 +55,11 @@ def chat(messages: list[dict], model: str | None = None, **kwargs) -> str:
 
 
 def analysis_chat(messages: list[dict], **kwargs) -> str:
-    return chat(messages, model=MODEL_ANALYSIS, **kwargs)
+    return chat(messages, model=_resolve_model("analysis"), **kwargs)
 
 
 def score_news(messages: list[dict], **kwargs) -> str:
-    return chat(messages, model=MODEL_NEWS_SCORER, **kwargs)
+    return chat(messages, model=_resolve_model("news_scorer"), **kwargs)
 
 
 def test_connection() -> dict:

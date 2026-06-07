@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Button,
   Spin,
@@ -10,6 +10,8 @@ import {
   Col,
   Statistic,
   DatePicker,
+  Tabs,
+  Tag,
   message,
 } from "antd";
 import { SyncOutlined, ThunderboltOutlined } from "@ant-design/icons";
@@ -20,6 +22,22 @@ import StockLink from "../../components/StockLink";
 import type { LimitUpResponse, LimitUpItem } from "../../types";
 
 const POSITIVE_COLOR = "#cf1322";
+
+const BOARD_LIST = ["沪深主板", "创业板", "科创板", "北交所"] as const;
+const BOARD_COLORS: Record<string, string> = {
+  "沪深主板": "#1677ff",
+  "创业板": "#fa8c16",
+  "科创板": "#722ed1",
+  "北交所": "#13c2c2",
+};
+
+function classifyBoard(code: string): string {
+  if (code.startsWith("688")) return "科创板";
+  if (code.startsWith("60") || code.startsWith("00")) return "沪深主板";
+  if (code.startsWith("30")) return "创业板";
+  if (code.startsWith("8") || code.startsWith("4")) return "北交所";
+  return "其他";
+}
 
 function fmtAmount(v: number | null): string {
   if (v == null) return "--";
@@ -42,6 +60,15 @@ const columns = [
     render: (v: string, r: LimitUpItem) => <StockLink code={v} name={r.name}>{v}</StockLink>,
   },
   { title: "名称", dataIndex: "name", key: "name", width: 100 },
+  {
+    title: "板块",
+    dataIndex: "board",
+    key: "board",
+    width: 90,
+    render: (v: string) => (
+      <Tag color={BOARD_COLORS[v] || "default"} style={{ margin: 0 }}>{v || "其他"}</Tag>
+    ),
+  },
   {
     title: "最新价",
     dataIndex: "price",
@@ -119,12 +146,28 @@ function sectorChart(items: LimitUpItem[]) {
   };
 }
 
+function boardChart(boardStats: Record<string, number>) {
+  const boards = BOARD_LIST.filter((b) => boardStats[b]);
+  return {
+    tooltip: { trigger: "item" as const },
+    legend: { bottom: 0 },
+    series: [{
+      type: "pie" as const,
+      radius: ["40%", "70%"],
+      avoidLabelOverlap: false,
+      label: { show: true, formatter: "{b}: {c}只" },
+      data: boards.map((b) => ({ name: b, value: boardStats[b] || 0, itemStyle: { color: BOARD_COLORS[b] } })),
+    }],
+  };
+}
+
 export default function StockLimitUp() {
   const [data, setData] = useState<LimitUpResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [snapLoading, setSnapLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
+  const [activeBoard, setActiveBoard] = useState<string>("all");
 
   const loadData = useCallback(async (tradeDate?: string) => {
     setLoading(true);
@@ -160,10 +203,41 @@ export default function StockLimitUp() {
     }
   };
 
-  const items = data?.items ?? [];
-  const avgTurnover = items.length ? (items.reduce((s, i) => s + (i.turnover_rate ?? 0), 0) / items.length).toFixed(2) : "--";
-  const maxBoard = items.length ? Math.max(...items.map((i) => i.limit_up_times)) : 0;
-  const totalAmount = items.reduce((s, i) => s + (i.amount ?? 0), 0);
+  const allItems = useMemo(() => {
+    const raw = data?.items ?? [];
+    return raw.map((item) => ({
+      ...item,
+      board: item.board || classifyBoard(item.code),
+    }));
+  }, [data]);
+
+  const boardStats = useMemo(() => {
+    const stats: Record<string, number> = {};
+    for (const item of allItems) {
+      const b = item.board || "其他";
+      stats[b] = (stats[b] || 0) + 1;
+    }
+    return stats;
+  }, [allItems]);
+
+  const filteredItems = useMemo(() => {
+    if (activeBoard === "all") return allItems;
+    return allItems.filter((item) => item.board === activeBoard);
+  }, [allItems, activeBoard]);
+
+  const avgTurnover = filteredItems.length
+    ? (filteredItems.reduce((s, i) => s + (i.turnover_rate ?? 0), 0) / filteredItems.length).toFixed(2)
+    : "--";
+  const maxBoard = filteredItems.length ? Math.max(...filteredItems.map((i) => i.limit_up_times)) : 0;
+  const totalAmount = filteredItems.reduce((s, i) => s + (i.amount ?? 0), 0);
+
+  const tabItems = [
+    { key: "all", label: `全部 (${allItems.length})` },
+    ...BOARD_LIST.map((b) => ({
+      key: b,
+      label: `${b} (${boardStats[b] || 0})`,
+    })),
+  ].filter((t) => t.key === "all" || (boardStats[t.key] || 0) > 0);
 
   return (
     <div>
@@ -184,7 +258,7 @@ export default function StockLimitUp() {
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
-          <Card size="small"><Statistic title="涨停数量" value={data?.item_count ?? 0} valueStyle={{ color: POSITIVE_COLOR }} /></Card>
+          <Card size="small"><Statistic title="涨停数量" value={filteredItems.length} valueStyle={{ color: POSITIVE_COLOR }} /></Card>
         </Col>
         <Col span={6}>
           <Card size="small"><Statistic title="平均换手率" value={avgTurnover} suffix="%" /></Card>
@@ -198,16 +272,32 @@ export default function StockLimitUp() {
       </Row>
 
       <Spin spinning={loading && !data}>
-        {items.length > 0 && (
-          <ReactECharts option={sectorChart(items)} style={{ height: 300, marginBottom: 16 }} notMerge lazyUpdate />
+        {allItems.length > 0 && (
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col span={10}>
+              <ReactECharts option={boardChart(boardStats)} style={{ height: 280 }} notMerge lazyUpdate />
+            </Col>
+            <Col span={14}>
+              <ReactECharts option={sectorChart(filteredItems)} style={{ height: 280 }} notMerge lazyUpdate />
+            </Col>
+          </Row>
         )}
+
+        <Tabs
+          activeKey={activeBoard}
+          onChange={setActiveBoard}
+          items={tabItems}
+          size="small"
+          style={{ marginBottom: 0 }}
+        />
+
         <Table
-          dataSource={items}
+          dataSource={filteredItems}
           columns={columns}
           rowKey="code"
           size="small"
           pagination={{ pageSize: 20, showSizeChanger: false }}
-          scroll={{ x: 1000 }}
+          scroll={{ x: 1200 }}
         />
       </Spin>
     </div>

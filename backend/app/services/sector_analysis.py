@@ -3,7 +3,6 @@ from datetime import datetime
 
 from app.database import get_connection
 from app.services import llm
-from app.config import MODEL_ANALYSIS
 from app.services.sector import get_sector_history_by_date
 
 logger = logging.getLogger(__name__)
@@ -123,13 +122,13 @@ def generate_sector_analysis(trade_date: str | None = None) -> dict:
         if existing:
             conn.execute(
                 "UPDATE sector_analysis SET analysis_text=?, model_used=?, status='completed', updated_at=? WHERE id=?",
-                (analysis_text, MODEL_ANALYSIS, now_str, existing["id"]),
+                (analysis_text, llm.get_model_for_function("sector_analysis"), now_str, existing["id"]),
             )
         else:
             conn.execute(
                 "INSERT INTO sector_analysis (trade_date, analysis_text, model_used, status, created_at, updated_at) "
                 "VALUES (?,?,?,'completed',?,?)",
-                (trade_date, analysis_text, MODEL_ANALYSIS, now_str, now_str),
+                (trade_date, analysis_text, llm.get_model_for_function("sector_analysis"), now_str, now_str),
             )
         conn.commit()
 

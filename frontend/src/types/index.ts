@@ -348,6 +348,7 @@ export interface LimitUpItem {
   limit_up_times: number;
   reason: string;
   sector: string;
+  board: string;
 }
 
 export interface LimitUpResponse {
