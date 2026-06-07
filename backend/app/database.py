@@ -165,6 +165,26 @@ CREATE TABLE IF NOT EXISTS model_config (
     model_name   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS strategy (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    type            TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    prompt_template TEXT NOT NULL DEFAULT '',
+    weight_config   TEXT NOT NULL DEFAULT '{}',
+    news_enabled    INTEGER NOT NULL DEFAULT 1,
+    news_count      INTEGER NOT NULL DEFAULT 15,
+    output_format   TEXT NOT NULL DEFAULT '{}',
+    is_enabled      INTEGER NOT NULL DEFAULT 1,
+    is_default      INTEGER NOT NULL DEFAULT 0,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    model_override  TEXT DEFAULT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_strategy_type ON strategy(type);
+CREATE INDEX IF NOT EXISTS idx_strategy_enabled ON strategy(is_enabled);
 """
 
 

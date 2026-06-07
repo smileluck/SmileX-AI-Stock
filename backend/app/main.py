@@ -13,6 +13,7 @@ from app.api.ai_daily_report import router as ai_report_router
 from app.api.stock import router as stock_router
 from app.api.sector_analysis import router as sector_analysis_router
 from app.api.model_config import router as model_config_router
+from app.api.strategy import router as strategy_router
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
@@ -27,6 +28,8 @@ SYNC_INTERVAL_SECONDS = 300
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    from app.services.strategy import seed_default_strategies
+    seed_default_strategies()
     start_scheduler()
     from app.services.scheduler import add_job
     from app.services.market_analysis import generate_daily_analysis
@@ -84,3 +87,4 @@ app.include_router(ai_report_router, prefix="/api/v1")
 app.include_router(stock_router, prefix="/api/v1")
 app.include_router(sector_analysis_router, prefix="/api/v1")
 app.include_router(model_config_router, prefix="/api/v1")
+app.include_router(strategy_router, prefix="/api/v1")

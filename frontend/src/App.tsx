@@ -14,6 +14,7 @@ import StockOverview from "./pages/stock/StockOverview";
 import StockLimitUp from "./pages/stock/StockLimitUp";
 import StockRecommendation from "./pages/stock/StockRecommendation";
 import StockHistory from "./pages/stock/StockHistory";
+import StrategyPage from "./pages/Strategy";
 
 function App() {
   return (
@@ -37,6 +38,7 @@ function App() {
           <Route path="/stock/history" element={<StockHistory />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/scheduler" element={<SchedulerPage />} />
+          <Route path="/strategy" element={<StrategyPage />} />
           <Route path="/ai-assistant" element={<Navigate to="/ai-assistant/llm-config" replace />} />
           <Route path="/ai-assistant/llm-config" element={<LLMConfig />} />
           <Route path="/ai-assistant/chat" element={<AIChat />} />
