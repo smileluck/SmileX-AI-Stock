@@ -223,6 +223,33 @@ def _build_concept_change_map() -> dict[str, float]:
     return {r["name"]: r["change_pct"] for r in rows if r["change_pct"] is not None}
 
 
+def _build_leading_stock_map() -> dict[str, list[tuple[str, float]]]:
+    """Build stock_name → [(sector_name, change_pct)] from latest sector_snapshot leading stocks."""
+    conn = get_connection()
+    try:
+        date_row = conn.execute(
+            "SELECT MAX(trade_date) as d FROM sector_snapshot WHERE status='ok'"
+        ).fetchone()
+        if not date_row or not date_row["d"]:
+            return {}
+        rows = conn.execute(
+            """SELECT leading_stock, name, change_pct
+               FROM sector_snapshot_item
+               WHERE trade_date = ? AND leading_stock IS NOT NULL AND leading_stock != ''""",
+            (date_row["d"],),
+        ).fetchall()
+    finally:
+        conn.close()
+    result: dict[str, list[tuple[str, float]]] = {}
+    for r in rows:
+        name = r["leading_stock"]
+        if name not in result:
+            result[name] = []
+        if r["change_pct"] is not None:
+            result[name].append((r["name"], r["change_pct"]))
+    return result
+
+
 def _code_to_secid(code: str) -> str:
     if code.startswith("6"):
         return f"1.{code}"
@@ -230,18 +257,51 @@ def _code_to_secid(code: str) -> str:
 
 
 def _fetch_one_stock_concepts(code: str) -> list[str]:
-    """Fetch concept tag names for a single stock from EM API."""
+    """Fetch concept tag names for a single stock. Try EM push2 first, then Sina."""
+    # Try EM push2 API
     secid = _code_to_secid(code)
     try:
         r = requests.get(
-            "https://push2.eastmoney.com/api/qt/stock/get",
+            "http://push2.eastmoney.com/api/qt/stock/get",
             params={"secid": secid, "fields": "f129"},
             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"},
             timeout=5,
         )
         r.raise_for_status()
         tags = (r.json().get("data") or {}).get("f129") or ""
-        return [t.strip() for t in tags.split(",") if t.strip()]
+        result = [t.strip() for t in tags.split(",") if t.strip()]
+        if result:
+            return result
+    except Exception:
+        pass
+
+    # Fallback: Sina concept page
+    try:
+        r = requests.get(
+            f"https://vip.stock.finance.sina.com.cn/corp/go.php/vCI_CorpOtherInfo/stockid/{code}/menu_num/5.phtml",
+            headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+            timeout=5,
+        )
+        parser = etree.HTMLParser(encoding="gbk")
+        tree = etree.HTML(r.content, parser=parser)
+        concepts = []
+        # Find the concept table (after "所属概念板块" header)
+        in_concept = False
+        for table in tree.xpath("//table"):
+            for row in table.xpath(".//tr"):
+                cells = [c.xpath("string(.)").strip() for c in row.xpath(".//td | .//th")]
+                text = "".join(cells)
+                if "所属概念板块" in text:
+                    in_concept = True
+                    continue
+                if "所属行业" in text:
+                    in_concept = False
+                    continue
+                if in_concept and cells:
+                    name = cells[0].strip()
+                    if name and name not in ("概念板块", "同概念个股", "备注：此为申万行业分类"):
+                        concepts.append(name)
+        return concepts
     except Exception:
         return []
 
@@ -252,21 +312,36 @@ def _enrich_driving_concepts(items: list[dict], top_k: int = 3) -> list[dict]:
         return items
 
     concept_map = _build_concept_change_map()
+    leading_map = _build_leading_stock_map()
 
+    # Try EM API for concept tags (primary source)
     codes = [it["code"] for it in items]
-    stock_concepts: dict[str, list[str]] = {}
+    stock_tags: dict[str, list[str]] = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(_fetch_one_stock_concepts, c): c for c in set(codes)}
         for f in as_completed(futures, timeout=15):
-            stock_concepts[futures[f]] = f.result()
+            stock_tags[futures[f]] = f.result()
+
+    api_hit = any(v for v in stock_tags.values())
 
     for item in items:
-        tags = stock_concepts.get(item["code"], [])
-        matched = []
+        matched: list[dict] = []
+
+        # Source 1: EM API concept tags matched against sector_snapshot
+        tags = stock_tags.get(item["code"], [])
         for tag in tags:
             pct = concept_map.get(tag)
             if pct is not None:
                 matched.append({"name": tag, "change_pct": round(pct, 2)})
+
+        # Source 2 (fallback): DB leading_stock matching
+        if not api_hit or len(matched) < top_k:
+            stock_name = item.get("name", "")
+            sectors = leading_map.get(stock_name, [])
+            for sec_name, sec_pct in sectors:
+                if not any(m["name"] == sec_name for m in matched):
+                    matched.append({"name": sec_name, "change_pct": round(sec_pct, 2)})
+
         matched.sort(key=lambda x: x["change_pct"], reverse=True)
         item["driving_concepts"] = matched[:top_k]
     return items
