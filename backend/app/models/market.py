@@ -233,3 +233,93 @@ class GenerateAiReportResponse(BaseModel):
     success: bool
     message: str
     data: AiDailyReportItem | None = None
+
+
+# --- Stock: Limit Up ---
+
+class LimitUpItem(BaseModel):
+    code: str
+    name: str
+    price: float | None = None
+    change_pct: float | None = None
+    limit_up_amount: float | None = None
+    turnover_rate: float | None = None
+    volume: float | None = None
+    amount: float | None = None
+    amplitude: float | None = None
+    first_limit_up_time: str | None = None
+    last_limit_up_time: str | None = None
+    limit_up_times: int = 1
+    reason: str = ""
+    sector: str = ""
+
+
+class LimitUpResponse(BaseModel):
+    trade_date: str
+    items: list[LimitUpItem]
+    item_count: int
+    fetch_time: str
+
+
+# --- Stock: Hot & Sentiment ---
+
+class StockHotItem(BaseModel):
+    code: str
+    name: str
+    price: float | None = None
+    change_pct: float | None = None
+    hot_rank: int | None = None
+    turnover_rate: float | None = None
+    amount: float | None = None
+
+
+class MarketSentimentResponse(BaseModel):
+    up_count: int = 0
+    down_count: int = 0
+    flat_count: int = 0
+    limit_up_count: int = 0
+    limit_down_count: int = 0
+    sentiment_score: float | None = None
+    hot_stocks: list[StockHotItem] = []
+    fetch_time: str
+
+
+class StockOverviewResponse(BaseModel):
+    sentiment: MarketSentimentResponse
+    limit_up: LimitUpResponse
+    fetch_time: str
+
+
+# --- Stock: Recommendation ---
+
+class RecommendationItem(BaseModel):
+    id: int
+    trade_date: str
+    code: str
+    name: str
+    reason: str
+    strategy: str
+    target_price: float | None = None
+    stop_loss_price: float | None = None
+    risk_level: str = "medium"
+    confidence: float = 0.5
+    sector: str = ""
+    score: float = 0
+    model_used: str
+    status: str
+    actual_return_pct: float | None = None
+    actual_exit_date: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class RecommendationListResponse(BaseModel):
+    items: list[RecommendationItem]
+    total: int
+
+
+class GenerateRecommendationResponse(BaseModel):
+    success: bool
+    message: str
+    data: list[RecommendationItem] | None = None
+    total: int = 0

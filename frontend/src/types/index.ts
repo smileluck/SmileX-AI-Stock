@@ -331,3 +331,93 @@ export interface AiDailyReportResponse {
   total: number;
 }
 
+// --- Stock: Limit Up ---
+
+export interface LimitUpItem {
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  limit_up_amount: number | null;
+  turnover_rate: number | null;
+  volume: number | null;
+  amount: number | null;
+  amplitude: number | null;
+  first_limit_up_time: string | null;
+  last_limit_up_time: string | null;
+  limit_up_times: number;
+  reason: string;
+  sector: string;
+}
+
+export interface LimitUpResponse {
+  trade_date: string;
+  items: LimitUpItem[];
+  item_count: number;
+  fetch_time: string;
+}
+
+// --- Stock: Hot & Sentiment ---
+
+export interface StockHotItem {
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  hot_rank: number | null;
+  turnover_rate: number | null;
+  amount: number | null;
+}
+
+export interface MarketSentimentResponse {
+  up_count: number;
+  down_count: number;
+  flat_count: number;
+  limit_up_count: number;
+  limit_down_count: number;
+  sentiment_score: number | null;
+  hot_stocks: StockHotItem[];
+  fetch_time: string;
+}
+
+export interface StockOverviewResponse {
+  sentiment: MarketSentimentResponse;
+  limit_up: LimitUpResponse;
+  fetch_time: string;
+}
+
+// --- Stock: Recommendation ---
+
+export interface RecommendationItem {
+  id: number;
+  trade_date: string;
+  code: string;
+  name: string;
+  reason: string;
+  strategy: string;
+  target_price: number | null;
+  stop_loss_price: number | null;
+  risk_level: string;
+  confidence: number;
+  sector: string;
+  score: number;
+  model_used: string;
+  status: string;
+  actual_return_pct: number | null;
+  actual_exit_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecommendationListResponse {
+  items: RecommendationItem[];
+  total: number;
+}
+
+export interface GenerateRecommendationResponse {
+  success: boolean;
+  message: string;
+  data: RecommendationItem[] | null;
+  total: number;
+}
+

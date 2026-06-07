@@ -9,6 +9,10 @@ import NewsPage from "./pages/News";
 import SchedulerPage from "./pages/Scheduler";
 import LLMConfig from "./pages/LLMConfig";
 import AIChat from "./pages/AIChat";
+import StockOverview from "./pages/stock/StockOverview";
+import StockLimitUp from "./pages/stock/StockLimitUp";
+import StockRecommendation from "./pages/stock/StockRecommendation";
+import StockHistory from "./pages/stock/StockHistory";
 
 function App() {
   return (
@@ -22,6 +26,11 @@ function App() {
           <Route path="/sector" element={<Navigate to="/sector/today" replace />} />
           <Route path="/sector/today" element={<SectorOverview />} />
           <Route path="/sector/history" element={<SectorHistory />} />
+          <Route path="/stock" element={<Navigate to="/stock/overview" replace />} />
+          <Route path="/stock/overview" element={<StockOverview />} />
+          <Route path="/stock/limit-up" element={<StockLimitUp />} />
+          <Route path="/stock/recommendation" element={<StockRecommendation />} />
+          <Route path="/stock/history" element={<StockHistory />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/scheduler" element={<SchedulerPage />} />
           <Route path="/ai-assistant" element={<Navigate to="/ai-assistant/llm-config" replace />} />

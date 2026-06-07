@@ -100,6 +100,52 @@ CREATE TABLE IF NOT EXISTS ai_daily_report (
 );
 CREATE INDEX IF NOT EXISTS idx_adr_date ON ai_daily_report(trade_date);
 CREATE INDEX IF NOT EXISTS idx_adr_status ON ai_daily_report(status);
+
+CREATE TABLE IF NOT EXISTS limit_up_snapshot (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date          TEXT NOT NULL,
+    code                TEXT NOT NULL,
+    name                TEXT NOT NULL,
+    price               REAL,
+    change_pct          REAL,
+    limit_up_amount     REAL,
+    turnover_rate       REAL,
+    volume              REAL,
+    amount              REAL,
+    amplitude           REAL,
+    first_limit_up_time TEXT,
+    last_limit_up_time  TEXT,
+    limit_up_times      INTEGER DEFAULT 1,
+    reason              TEXT DEFAULT '',
+    sector              TEXT DEFAULT '',
+    created_at          TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lus_date_code ON limit_up_snapshot(trade_date, code);
+CREATE INDEX IF NOT EXISTS idx_lus_date ON limit_up_snapshot(trade_date);
+
+CREATE TABLE IF NOT EXISTS stock_recommendation (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date        TEXT NOT NULL,
+    code              TEXT NOT NULL,
+    name              TEXT NOT NULL,
+    reason            TEXT DEFAULT '',
+    strategy          TEXT DEFAULT '',
+    target_price      REAL,
+    stop_loss_price   REAL,
+    risk_level        TEXT DEFAULT 'medium',
+    confidence        REAL DEFAULT 0.5,
+    sector            TEXT DEFAULT '',
+    score             REAL DEFAULT 0,
+    model_used        TEXT DEFAULT '',
+    status            TEXT DEFAULT 'pending',
+    actual_return_pct REAL,
+    actual_exit_date  TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sr_date_code ON stock_recommendation(trade_date, code);
+CREATE INDEX IF NOT EXISTS idx_sr_date ON stock_recommendation(trade_date);
+CREATE INDEX IF NOT EXISTS idx_sr_status ON stock_recommendation(status);
 """
 
 

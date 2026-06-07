@@ -40,9 +40,17 @@ const menuItems = [
     ],
   },
   { key: "/scheduler", icon: <FieldTimeOutlined />, label: "定时任务" },
-  { key: "/stock", icon: <StockOutlined />, label: "个股分析" },
-  { key: "/recommendation", icon: <ThunderboltOutlined />, label: "今日推荐" },
-  { key: "/history", icon: <HistoryOutlined />, label: "历史推荐" },
+  {
+    key: "/stock",
+    icon: <StockOutlined />,
+    label: "个股",
+    children: [
+      { key: "/stock/overview", icon: <DashboardOutlined />, label: "分析总览" },
+      { key: "/stock/limit-up", icon: <ThunderboltOutlined />, label: "今日涨停" },
+      { key: "/stock/recommendation", icon: <BulbOutlined />, label: "今日推荐" },
+      { key: "/stock/history", icon: <HistoryOutlined />, label: "历史推荐" },
+    ],
+  },
   { key: "/strategy", icon: <ExperimentOutlined />, label: "策略管理" },
   { key: "/backtest", icon: <BarChartOutlined />, label: "策略回测" },
   {
@@ -62,6 +70,7 @@ export default function Sidebar() {
   const [openKeys, setOpenKeys] = useState<string[]>(() => {
     if (location.pathname.startsWith("/market")) return ["/market"];
     if (location.pathname.startsWith("/sector")) return ["/sector"];
+    if (location.pathname.startsWith("/stock")) return ["/stock"];
     if (location.pathname.startsWith("/ai-assistant")) return ["/ai-assistant"];
     return [];
   });
