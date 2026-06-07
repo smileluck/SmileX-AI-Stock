@@ -367,12 +367,25 @@ export interface StockHotItem {
   hot_rank: number | null;
   turnover_rate: number | null;
   amount: number | null;
+  volume: number | null;
+  net_inflow: number | null;
+  industry: string;
+  limit_up_tag: string;
   source: string;
 }
 
 export interface HotStockSource {
   source: string;
   items: StockHotItem[];
+}
+
+export interface HotConceptItem {
+  name: string;
+  sector_type: string;
+  change_pct: number | null;
+  main_net_inflow: number | null;
+  leading_stock: string;
+  leading_stock_change_pct: number | null;
 }
 
 export interface MarketSentimentResponse {
@@ -383,6 +396,7 @@ export interface MarketSentimentResponse {
   limit_down_count: number;
   sentiment_score: number | null;
   hot_stocks: HotStockSource[];
+  hot_concepts: HotConceptItem[];
   fetch_time: string;
 }
 

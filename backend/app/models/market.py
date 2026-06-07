@@ -271,12 +271,25 @@ class StockHotItem(BaseModel):
     hot_rank: int | None = None
     turnover_rate: float | None = None
     amount: float | None = None
+    volume: float | None = None
+    net_inflow: float | None = None
+    industry: str = ""
+    limit_up_tag: str = ""
     source: str = ""
 
 
 class HotStockSource(BaseModel):
     source: str
     items: list[StockHotItem]
+
+
+class HotConceptItem(BaseModel):
+    name: str
+    sector_type: str = ""
+    change_pct: float | None = None
+    main_net_inflow: float | None = None
+    leading_stock: str = ""
+    leading_stock_change_pct: float | None = None
 
 
 class MarketSentimentResponse(BaseModel):
@@ -287,6 +300,7 @@ class MarketSentimentResponse(BaseModel):
     limit_down_count: int = 0
     sentiment_score: float | None = None
     hot_stocks: list[HotStockSource] = []
+    hot_concepts: list[HotConceptItem] = []
     fetch_time: str
 
 

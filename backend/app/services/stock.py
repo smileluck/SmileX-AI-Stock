@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 
 import akshare as ak
+import requests
 
 from app.config import MODEL_ANALYSIS
 from app.database import get_connection
@@ -141,6 +142,71 @@ def _strip_code(raw_code: str) -> str:
     return raw_code
 
 
+def _code_to_sina(code: str) -> str:
+    """Convert pure code to sina format: sh600519 / sz000651"""
+    if code.startswith("6"):
+        return f"sh{code}"
+    return f"sz{code}"
+
+
+def _enrich_from_sina(items: list[dict]) -> list[dict]:
+    """Batch enrich stock items with volume/amount/turnover from Sina HQ API."""
+    if not items:
+        return items
+    codes = ",".join(_code_to_sina(it["code"]) for it in items)
+    try:
+        r = requests.get(
+            f"https://hq.sinajs.cn/list={codes}",
+            headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        r.raise_for_status()
+    except Exception:
+        logger.debug("新浪行情补充获取失败", exc_info=True)
+        return items
+
+    lines = [l.strip() for l in r.text.strip().split("\n") if l.strip()]
+    sina_map: dict[str, dict] = {}
+    for line in lines:
+        m = re.match(r'var hq_str_(s[hz]\d+)="(.+)"', line)
+        if m:
+            parts = m.group(2).split(",")
+            if len(parts) >= 10:
+                code = m.group(1)[2:]  # strip sh/sz prefix
+                prev_close = _parse_float(parts[2])
+                current = _parse_float(parts[3])
+                volume_shares = _parse_float(parts[8])
+                amount = _parse_float(parts[9])
+                high = _parse_float(parts[4])
+                low = _parse_float(parts[5])
+                turnover_rate = None
+                if prev_close and prev_close > 0 and volume_shares:
+                    pass  # need流通股本 for turnover, skip
+                sina_map[code] = {
+                    "volume": volume_shares,
+                    "amount": amount,
+                    "change_pct": _round2(((current or 0) - (prev_close or 0)) / prev_close * 100) if prev_close else None,
+                    "amplitude": _round2(((high or 0) - (low or 0)) / prev_close * 100) if prev_close else None,
+                }
+
+    for item in items:
+        sd = sina_map.get(item["code"])
+        if sd:
+            item["volume"] = sd["volume"]
+            item["amount"] = sd["amount"]
+            if item.get("change_pct") is None and sd["change_pct"] is not None:
+                item["change_pct"] = sd["change_pct"]
+    return items
+
+
+_XQ_HEADERS = {
+    "Accept": "*/*",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://xueqiu.com/hq",
+    "X-Requested-With": "XMLHttpRequest",
+}
+
+
 def _fetch_hot_em(top_n: int) -> list[dict]:
     """东方财富个股人气榜"""
     try:
@@ -157,100 +223,85 @@ def _fetch_hot_em(top_n: int) -> list[dict]:
                 "hot_rank": int(_parse_float(row.get("当前排名")) or (idx + 1)),
                 "turnover_rate": None,
                 "amount": None,
-                "source": "东方财富",
+                "volume": None,
+                "net_inflow": None,
+                "industry": "",
+                "limit_up_tag": "",
             })
+        items = _enrich_from_sina(items)
         return items
     except Exception:
         logger.debug("东方财富人气榜获取失败", exc_info=True)
         return []
 
 
-def _fetch_hot_xq_follow(top_n: int) -> list[dict]:
-    """雪球关注排行榜"""
+def _fetch_hot_xq(order_by: str, top_n: int) -> list[dict]:
+    """雪球热度排行 - 直接 HTTP 请求，只取一页"""
     try:
-        df = ak.stock_hot_follow_xq(symbol="最热门")
-        if df is None or df.empty:
-            return []
-        items = []
-        for idx, row in df.head(top_n).iterrows():
-            items.append({
-                "code": _strip_code(str(row.get("股票代码", ""))),
-                "name": str(row.get("股票简称", "")),
-                "price": _parse_float(row.get("最新价")),
-                "change_pct": None,
-                "hot_rank": idx + 1,
-                "turnover_rate": None,
-                "amount": None,
-                "source": "雪球",
-            })
-        return items
+        r = requests.get(
+            "https://xueqiu.com/service/v5/stock/screener/screen",
+            params={
+                "category": "CN",
+                "size": str(top_n),
+                "order": "desc",
+                "order_by": order_by,
+                "only_count": "0",
+                "page": "1",
+            },
+            headers=_XQ_HEADERS,
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+        stock_list = data.get("data", {}).get("list") or []
     except Exception:
-        logger.debug("雪球关注榜获取失败", exc_info=True)
+        logger.debug("雪球排行获取失败 (order_by=%s)", order_by, exc_info=True)
         return []
 
-
-def _fetch_hot_xq_tweet(top_n: int) -> list[dict]:
-    """雪球讨论排行榜"""
-    try:
-        df = ak.stock_hot_tweet_xq(symbol="最热门")
-        if df is None or df.empty:
-            return []
-        items = []
-        for idx, row in df.head(top_n).iterrows():
-            items.append({
-                "code": _strip_code(str(row.get("股票代码", ""))),
-                "name": str(row.get("股票简称", "")),
-                "price": _parse_float(row.get("最新价")),
-                "change_pct": None,
-                "hot_rank": idx + 1,
-                "turnover_rate": None,
-                "amount": None,
-                "source": "雪球",
-            })
-        return items
-    except Exception:
-        logger.debug("雪球讨论榜获取失败", exc_info=True)
-        return []
-
-
-def _fetch_hot_xq_deal(top_n: int) -> list[dict]:
-    """雪球交易分享排行榜"""
-    try:
-        df = ak.stock_hot_deal_xq(symbol="最热门")
-        if df is None or df.empty:
-            return []
-        items = []
-        for idx, row in df.head(top_n).iterrows():
-            items.append({
-                "code": _strip_code(str(row.get("股票代码", ""))),
-                "name": str(row.get("股票简称", "")),
-                "price": _parse_float(row.get("最新价")),
-                "change_pct": None,
-                "hot_rank": idx + 1,
-                "turnover_rate": None,
-                "amount": None,
-                "source": "雪球",
-            })
-        return items
-    except Exception:
-        logger.debug("雪球交易榜获取失败", exc_info=True)
-        return []
+    items = []
+    for idx, s in enumerate(stock_list[:top_n]):
+        pct = _round2(_parse_float(s.get("pct")))
+        items.append({
+            "code": _strip_code(str(s.get("symbol", ""))),
+            "name": str(s.get("name", "")),
+            "price": _parse_float(s.get("current")),
+            "change_pct": pct,
+            "hot_rank": idx + 1,
+            "turnover_rate": None,
+            "amount": None,
+            "volume": None,
+            "net_inflow": None,
+            "industry": "",
+            "limit_up_tag": "涨停" if (pct or 0) >= 9.9 else "",
+        })
+    items = _enrich_from_sina(items)
+    return items
 
 
 def get_stock_hot_rank(top_n: int = 20) -> list[dict]:
     """Fetch stock popularity ranking from all sources, returns list of {source, items}."""
-    sources = [
-        ("东方财富人气", lambda: _fetch_hot_em(top_n)),
-        ("雪球关注", lambda: _fetch_hot_xq_follow(top_n)),
-        ("雪球讨论", lambda: _fetch_hot_xq_tweet(top_n)),
-        ("雪球交易", lambda: _fetch_hot_xq_deal(top_n)),
-    ]
     result = []
-    for name, fn in sources:
-        items = fn()
-        if items:
-            logger.info("热门个股 [%s]: %d 条", name, len(items))
-            result.append({"source": name, "items": items})
+
+    em_items = _fetch_hot_em(top_n)
+    if em_items:
+        result.append({"source": "东方财富人气", "items": em_items})
+        logger.info("热门个股 [东方财富人气]: %d 条", len(em_items))
+
+    xq_follow = _fetch_hot_xq("follow", top_n)
+    if xq_follow:
+        result.append({"source": "雪球关注", "items": xq_follow})
+        logger.info("热门个股 [雪球关注]: %d 条", len(xq_follow))
+
+    xq_tweet = _fetch_hot_xq("tweet", top_n)
+    if xq_tweet:
+        result.append({"source": "雪球讨论", "items": xq_tweet})
+        logger.info("热门个股 [雪球讨论]: %d 条", len(xq_tweet))
+
+    xq_deal = _fetch_hot_xq("deal", top_n)
+    if xq_deal:
+        result.append({"source": "雪球交易", "items": xq_deal})
+        logger.info("热门个股 [雪球交易]: %d 条", len(xq_deal))
+
     if not result:
         logger.warning("所有热门个股数据源均失败")
     return result
@@ -287,6 +338,7 @@ def get_market_sentiment() -> dict:
         logger.warning("akshare stock_market_activity_legu failed", exc_info=True)
 
     hot_stocks = get_stock_hot_rank()
+    hot_concepts = _get_hot_concepts()
 
     return {
         "up_count": up_count,
@@ -296,8 +348,55 @@ def get_market_sentiment() -> dict:
         "limit_down_count": limit_down_count,
         "sentiment_score": sentiment_score,
         "hot_stocks": hot_stocks,
+        "hot_concepts": hot_concepts,
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+
+
+def _get_hot_concepts(limit: int = 3) -> list[dict]:
+    """Get top concepts and industries from DB snapshot."""
+    conn = get_connection()
+    try:
+        date_row = conn.execute(
+            "SELECT MAX(trade_date) as d FROM sector_snapshot WHERE status='ok'"
+        ).fetchone()
+        if not date_row or not date_row["d"]:
+            return []
+        trade_date = date_row["d"]
+
+        rows = conn.execute(
+            """SELECT name, sector_type, change_pct, main_net_inflow,
+                      leading_stock, leading_stock_change_pct
+               FROM sector_snapshot_item
+               WHERE trade_date = ? AND sector_type = 'concept'
+               ORDER BY change_pct DESC NULLS LAST LIMIT ?""",
+            (trade_date, limit),
+        ).fetchall()
+        concepts = [dict(r) for r in rows]
+
+        rows2 = conn.execute(
+            """SELECT name, sector_type, change_pct, main_net_inflow,
+                      leading_stock, leading_stock_change_pct
+               FROM sector_snapshot_item
+               WHERE trade_date = ? AND sector_type = 'industry'
+               ORDER BY change_pct DESC NULLS LAST LIMIT ?""",
+            (trade_date, limit),
+        ).fetchall()
+        industries = [dict(r) for r in rows2]
+
+        result = []
+        for item in concepts + industries:
+            result.append({
+                "name": item.get("name", ""),
+                "sector_type": item.get("sector_type", ""),
+                "change_pct": _round2(item.get("change_pct")),
+                "main_net_inflow": item.get("main_net_inflow"),
+                "leading_stock": item.get("leading_stock") or "",
+                "leading_stock_change_pct": _round2(item.get("leading_stock_change_pct")),
+            })
+        return result
+    finally:
+        conn.close()
 
 
 def get_stock_overview() -> dict:
