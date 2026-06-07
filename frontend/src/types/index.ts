@@ -359,6 +359,11 @@ export interface LimitUpResponse {
 
 // --- Stock: Hot & Sentiment ---
 
+export interface DrivingConcept {
+  name: string;
+  change_pct: number;
+}
+
 export interface StockHotItem {
   code: string;
   name: string;
@@ -370,7 +375,7 @@ export interface StockHotItem {
   volume: number | null;
   net_inflow: number | null;
   industry: string;
-  limit_up_tag: string;
+  driving_concepts: DrivingConcept[];
   source: string;
 }
 

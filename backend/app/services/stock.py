@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import akshare as ak
@@ -200,6 +201,77 @@ def _enrich_from_sina(items: list[dict]) -> list[dict]:
     return items
 
 
+# ---------------------------------------------------------------------------
+# Driving Concepts (受力分析)
+# ---------------------------------------------------------------------------
+
+def _build_concept_change_map() -> dict[str, float]:
+    """Build concept_name → change_pct map from latest sector_snapshot."""
+    conn = get_connection()
+    try:
+        date_row = conn.execute(
+            "SELECT MAX(trade_date) as d FROM sector_snapshot WHERE status='ok'"
+        ).fetchone()
+        if not date_row or not date_row["d"]:
+            return {}
+        rows = conn.execute(
+            "SELECT name, change_pct FROM sector_snapshot_item WHERE trade_date = ?",
+            (date_row["d"],),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {r["name"]: r["change_pct"] for r in rows if r["change_pct"] is not None}
+
+
+def _code_to_secid(code: str) -> str:
+    if code.startswith("6"):
+        return f"1.{code}"
+    return f"0.{code}"
+
+
+def _fetch_one_stock_concepts(code: str) -> list[str]:
+    """Fetch concept tag names for a single stock from EM API."""
+    secid = _code_to_secid(code)
+    try:
+        r = requests.get(
+            "https://push2.eastmoney.com/api/qt/stock/get",
+            params={"secid": secid, "fields": "f129"},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"},
+            timeout=5,
+        )
+        r.raise_for_status()
+        tags = (r.json().get("data") or {}).get("f129") or ""
+        return [t.strip() for t in tags.split(",") if t.strip()]
+    except Exception:
+        return []
+
+
+def _enrich_driving_concepts(items: list[dict], top_k: int = 3) -> list[dict]:
+    """Enrich each stock item with top-K driving concepts sorted by change_pct desc."""
+    if not items:
+        return items
+
+    concept_map = _build_concept_change_map()
+
+    codes = [it["code"] for it in items]
+    stock_concepts: dict[str, list[str]] = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_fetch_one_stock_concepts, c): c for c in set(codes)}
+        for f in as_completed(futures, timeout=15):
+            stock_concepts[futures[f]] = f.result()
+
+    for item in items:
+        tags = stock_concepts.get(item["code"], [])
+        matched = []
+        for tag in tags:
+            pct = concept_map.get(tag)
+            if pct is not None:
+                matched.append({"name": tag, "change_pct": round(pct, 2)})
+        matched.sort(key=lambda x: x["change_pct"], reverse=True)
+        item["driving_concepts"] = matched[:top_k]
+    return items
+
+
 _XQ_HEADERS = {
     "Accept": "*/*",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -227,7 +299,6 @@ def _fetch_hot_em(top_n: int) -> list[dict]:
                 "volume": None,
                 "net_inflow": None,
                 "industry": "",
-                "limit_up_tag": "",
             })
         items = _enrich_from_sina(items)
         return items
@@ -255,7 +326,6 @@ def _fetch_hot_em_surge(top_n: int) -> list[dict]:
                 "volume": None,
                 "net_inflow": None,
                 "industry": "",
-                "limit_up_tag": "",
             })
         items = _enrich_from_sina(items)
         return items
@@ -325,7 +395,7 @@ def _fetch_hot_ths(top_n: int) -> list[dict]:
             "volume": None,
             "net_inflow": None,
             "industry": "",
-            "limit_up_tag": "涨停" if (pct or 0) >= 9.9 else "",
+
         })
     items = _enrich_from_sina(items)
     return items
@@ -368,7 +438,7 @@ def _fetch_hot_xq(order_by: str, top_n: int) -> list[dict]:
             "volume": None,
             "net_inflow": None,
             "industry": "",
-            "limit_up_tag": "涨停" if (pct or 0) >= 9.9 else "",
+
         })
     items = _enrich_from_sina(items)
     return items
@@ -407,6 +477,11 @@ def get_stock_hot_rank(top_n: int = 20) -> list[dict]:
     if xq_deal:
         result.append({"source": "雪球交易", "items": xq_deal})
         logger.info("热门个股 [雪球交易]: %d 条", len(xq_deal))
+
+    # Enrich driving concepts for all items at once (shared concept map)
+    all_items = [it for src in result for it in src["items"]]
+    if all_items:
+        _enrich_driving_concepts(all_items)
 
     if not result:
         logger.warning("所有热门个股数据源均失败")

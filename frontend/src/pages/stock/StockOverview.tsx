@@ -21,7 +21,7 @@ import {
 import ReactECharts from "echarts-for-react";
 import { fetchStockOverview } from "../../api/stock";
 import StockLink from "../../components/StockLink";
-import type { StockOverviewResponse, LimitUpItem, StockHotItem, HotStockSource, HotConceptItem } from "../../types";
+import type { StockOverviewResponse, LimitUpItem, StockHotItem, HotStockSource, HotConceptItem, DrivingConcept } from "../../types";
 
 const POSITIVE_COLOR = "#cf1322";
 const NEGATIVE_COLOR = "#3f8600";
@@ -97,11 +97,22 @@ const hotColumns = [
     render: (v: number | null) => fmtVolume(v),
   },
   {
-    title: "涨停",
-    dataIndex: "limit_up_tag",
-    key: "limit_up_tag",
-    width: 55,
-    render: (v: string) => v ? <span style={{ color: POSITIVE_COLOR, fontWeight: "bold" }}>{v}</span> : "",
+    title: "受力分析",
+    dataIndex: "driving_concepts",
+    key: "driving_concepts",
+    width: 180,
+    render: (v: DrivingConcept[]) => {
+      if (!v || v.length === 0) return <span style={{ color: "#999" }}>--</span>;
+      return (
+        <span style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+          {v.map((c) => (
+            <Tag key={c.name} color={c.change_pct > 0 ? "red" : c.change_pct < 0 ? "green" : "default"} style={{ fontSize: 11, margin: 0 }}>
+              {c.name} {c.change_pct > 0 ? "+" : ""}{c.change_pct.toFixed(2)}%
+            </Tag>
+          ))}
+        </span>
+      );
+    },
   },
 ];
 
