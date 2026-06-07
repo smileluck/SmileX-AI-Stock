@@ -715,6 +715,188 @@ def get_stock_overview() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Morning Auction Analysis
+# ---------------------------------------------------------------------------
+
+def _preselect_morning_candidates(trade_date: str) -> list[dict]:
+    """Select ~20 candidate stocks from DB for morning auction analysis."""
+    candidates: dict[str, dict] = {}
+
+    conn = get_connection()
+    try:
+        # Yesterday's limit-up stocks (top 12 by amount)
+        prev_row = conn.execute(
+            "SELECT MAX(trade_date) as d FROM limit_up_snapshot WHERE trade_date < ?",
+            (trade_date,),
+        ).fetchone()
+        lu_date = prev_row["d"] if prev_row and prev_row["d"] else trade_date
+
+        rows = conn.execute(
+            "SELECT code, name, limit_up_times, sector, amount "
+            "FROM limit_up_snapshot WHERE trade_date = ? ORDER BY amount DESC LIMIT 12",
+            (lu_date,),
+        ).fetchall()
+        for r in rows:
+            candidates[r["code"]] = {
+                "code": r["code"],
+                "name": r["name"],
+                "source": f"昨日涨停(连板{r['limit_up_times'] or 1})",
+            }
+
+        # Hot sector leading stocks (top 10)
+        sec_row = conn.execute(
+            "SELECT MAX(trade_date) as d FROM sector_snapshot_item WHERE trade_date < ?",
+            (trade_date,),
+        ).fetchone()
+        sec_date = sec_row["d"] if sec_row and sec_row["d"] else trade_date
+
+        rows = conn.execute(
+            "SELECT leading_stock, leading_stock_code, name "
+            "FROM sector_snapshot_item "
+            "WHERE trade_date = ? AND sector_type = 'industry' "
+            "AND leading_stock_code IS NOT NULL "
+            "ORDER BY change_pct DESC LIMIT 10",
+            (sec_date,),
+        ).fetchall()
+        for r in rows:
+            code = r["leading_stock_code"]
+            if code and code not in candidates:
+                candidates[code] = {
+                    "code": code,
+                    "name": r["leading_stock"],
+                    "source": f"行业领涨({r['name']})",
+                }
+    finally:
+        conn.close()
+
+    return list(candidates.values())[:20]
+
+
+def _fetch_one_stock_auction(code: str) -> dict | None:
+    """Fetch auction order book data for a single stock from East Money push2 API."""
+    secid = _code_to_secid(code)
+    try:
+        r = requests.get(
+            "https://push2.eastmoney.com/api/qt/stock/get",
+            params={
+                "secid": secid,
+                "fltt": "2",
+                "fields": (
+                    "f43,f46,f47,f48,f50,f51,f52,f60,f161,"
+                    "f11,f12,f13,f14,f15,f16,f17,f18,f19,f20,"
+                    "f31,f32,f33,f34,f35,f36,f37,f38,f39,f40"
+                ),
+            },
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"},
+            timeout=5,
+        )
+        r.raise_for_status()
+        data = r.json().get("data")
+        if not data:
+            return None
+    except Exception:
+        logger.debug("竞价数据获取失败: %s", code, exc_info=True)
+        return None
+
+    prev_close = _parse_float(data.get("f60"))
+    current = _parse_float(data.get("f43"))
+    limit_up = _parse_float(data.get("f51"))
+
+    buy_vols = [_parse_float(data.get(f"f{i}")) or 0 for i in (12, 14, 16, 18, 20)]
+    sell_vols = [_parse_float(data.get(f"f{i}")) or 0 for i in (32, 34, 36, 38, 40)]
+    total_buy = sum(buy_vols)
+    total_sell = sum(sell_vols)
+
+    change_pct = round((current - prev_close) / prev_close * 100, 2) if prev_close and current else None
+    buy_sell_ratio = round(total_buy / total_sell, 2) if total_sell else None
+    volume_ratio = _parse_float(data.get("f50"))
+
+    signal_tags: list[str] = []
+    if current and limit_up and current >= limit_up:
+        signal_tags.append("竞价涨停")
+    if buy_sell_ratio is not None:
+        if buy_sell_ratio > 3:
+            signal_tags.append(f"买盘强势(比{buy_sell_ratio})")
+        elif buy_sell_ratio < 0.5:
+            signal_tags.append(f"卖盘压力大(比{buy_sell_ratio})")
+    if volume_ratio is not None and volume_ratio > 5:
+        signal_tags.append(f"量比异常({volume_ratio})")
+
+    return {
+        "code": code,
+        "current": current,
+        "prev_close": prev_close,
+        "change_pct": change_pct,
+        "volume": _parse_float(data.get("f47")),
+        "amount": _parse_float(data.get("f46")),
+        "volume_ratio": volume_ratio,
+        "turnover": _parse_float(data.get("f48")),
+        "limit_up": limit_up,
+        "limit_down": _parse_float(data.get("f52")),
+        "total_buy_vol": total_buy,
+        "total_sell_vol": total_sell,
+        "buy_sell_ratio": buy_sell_ratio,
+        "order_ratio": _parse_float(data.get("f161")),
+        "is_limit_up": current is not None and limit_up is not None and current >= limit_up,
+        "signal_tags": signal_tags,
+    }
+
+
+def _fetch_auction_data(candidates: list[dict]) -> list[dict]:
+    """Fetch auction data for candidate stocks with 2 concurrency."""
+    results: list[dict] = []
+    code_to_cand = {c["code"]: c for c in candidates}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {pool.submit(_fetch_one_stock_auction, c["code"]): c["code"] for c in candidates}
+        for f in as_completed(futures, timeout=60):
+            result = f.result()
+            if result:
+                code = futures[f]
+                cand = code_to_cand[code]
+                result["name"] = cand["name"]
+                result["source"] = cand["source"]
+                results.append(result)
+
+    return results
+
+
+def _format_auction_context(auction_data: list[dict]) -> str:
+    """Format auction data as context text for AI recommendation."""
+    if not auction_data:
+        return ""
+
+    sorted_data = sorted(auction_data, key=lambda x: x.get("change_pct") or 0, reverse=True)
+
+    lines = [f"=== 集合竞价分析 ({len(sorted_data)}只) ==="]
+    lines.append("说明: 竞价结束后(9:25)盘口数据，连续竞价开盘前(9:30)")
+
+    for d in sorted_data:
+        name = d.get("name", "")
+        code = d.get("code", "")
+        pct = d.get("change_pct")
+        current = d.get("current")
+        prev_close = d.get("prev_close")
+        buy_sell_ratio = d.get("buy_sell_ratio")
+        total_buy = d.get("total_buy_vol", 0)
+        total_sell = d.get("total_sell_vol", 0)
+        vol_ratio = d.get("volume_ratio")
+        source = d.get("source", "")
+        tags = d.get("signal_tags", [])
+
+        pct_str = f"{pct:+.2f}" if pct is not None else "N/A"
+        signal_str = f" 信号:[{','.join(tags)}]" if tags else ""
+
+        lines.append(
+            f"  {name}({code}) 竞价{pct_str}% 竞价价{current} 昨收{prev_close} "
+            f"买盘{total_buy}股 卖盘{total_sell}股 买卖比{buy_sell_ratio} "
+            f"量比{vol_ratio} 来源:{source}{signal_str}"
+        )
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # AI Recommendations
 # ---------------------------------------------------------------------------
 
@@ -752,10 +934,52 @@ _REC_SYSTEM_PROMPT = """\
 3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
 """
 
+_REC_MORNING_SYSTEM_PROMPT = """\
+你是一位资深A股投资顾问，负责根据集合竞价数据和市场信息为用户挑选具有投资价值的个股。
 
-def _get_rec_context(trade_date: str, phase: str = "afternoon") -> str:
+请根据以下市场数据和竞价分析，推荐 5-10 只有潜力的个股。要求：
+
+1. 每只股票必须包含以下字段，以 JSON 数组格式输出：
+   - code: 股票代码（如 "600519"）
+   - name: 股票名称
+   - reason: 推荐理由（50-100字，重点结合竞价表现和市场热点分析）
+   - strategy: 操作策略（如 "竞价追涨"、"开盘低吸"、"竞价打板"）
+   - current_price: 当前价格（根据竞价数据填写）
+   - buy_low: 建议买入区间下限
+   - buy_high: 建议买入区间上限
+   - target_price: 目标价
+   - stop_loss_price: 止损价
+   - take_profit_price: 止盈价
+   - risk_level: 风险等级 "low"/"medium"/"high"
+   - confidence: 信心度 0-1 之间的小数
+   - sector: 所属行业/板块
+   - score: 综合评分 1-10
+
+2. 推荐原则：
+   - 重点参考集合竞价数据，竞价涨幅高且买盘强势的股票优先考虑
+   - 买卖比 > 3 说明买盘远强于卖盘，开盘大概率继续走强
+   - 量比异常(>5)说明市场关注度高，可能有大资金介入
+   - 竞价涨停的股票封板概率高但风险也大，需谨慎评估
+   - 昨日涨停今日继续高开的股票具有强延续性，值得重点关注
+   - 结合热门板块和隔夜新闻利好，寻找竞价强势+消息面共振的品种
+   - 不推荐ST、*ST股票
+   - 买入区间应基于竞价价格合理设定，buy_low 不高于竞价价，buy_high 可略高于竞价价
+   - 止损价一般设在买入区间下限下方 2-5%
+   - 止盈价和目标价应体现合理盈利预期
+
+3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
+"""
+
+
+def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: list[dict] | None = None) -> str:
     """Collect context data for recommendation generation."""
     parts = []
+
+    # Auction analysis (morning only)
+    if phase == "morning" and auction_data:
+        auction_text = _format_auction_context(auction_data)
+        if auction_text:
+            parts.append(auction_text)
 
     # Limit-up data
     conn = get_connection()
@@ -853,10 +1077,21 @@ def generate_recommendations(trade_date: str | None = None, phase: str = "aftern
         trade_date = datetime.now().strftime("%Y-%m-%d")
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    context = _get_rec_context(trade_date, phase)
 
+    # Morning phase: preselect candidates and fetch auction data
+    auction_data: list[dict] | None = None
+    if phase == "morning":
+        candidates = _preselect_morning_candidates(trade_date)
+        if candidates:
+            logger.info("早盘候选股: %d 只，开始获取竞价数据", len(candidates))
+            auction_data = _fetch_auction_data(candidates)
+            logger.info("竞价数据获取完成: %d 只成功", len(auction_data or []))
+
+    context = _get_rec_context(trade_date, phase, auction_data=auction_data)
+
+    system_prompt = _REC_MORNING_SYSTEM_PROMPT if phase == "morning" else _REC_SYSTEM_PROMPT
     messages = [
-        {"role": "system", "content": _REC_SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": context},
     ]
     response = llm.analysis_chat(messages)
