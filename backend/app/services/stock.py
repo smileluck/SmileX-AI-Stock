@@ -897,6 +897,187 @@ def _format_auction_context(auction_data: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Midday (午盘) Analysis
+# ---------------------------------------------------------------------------
+
+def _preselect_midday_candidates(trade_date: str) -> list[dict]:
+    """Select ~25 candidate stocks for midday recommendation."""
+    candidates: dict[str, dict] = {}
+
+    # Source 1: Morning recommendations that are performing well
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT code, name, current_price, buy_low, buy_high FROM stock_recommendation "
+            "WHERE trade_date = ? AND phase = 'morning'",
+            (trade_date,),
+        ).fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        candidates[r["code"]] = {
+            "code": r["code"],
+            "name": r["name"],
+            "source": "早盘推荐",
+        }
+
+    # Source 2: Yesterday's limit-up stocks (continuation plays)
+    conn = get_connection()
+    try:
+        prev_row = conn.execute(
+            "SELECT MAX(trade_date) as d FROM limit_up_snapshot WHERE trade_date < ?",
+            (trade_date,),
+        ).fetchone()
+        lu_date = prev_row["d"] if prev_row and prev_row["d"] else trade_date
+        rows = conn.execute(
+            "SELECT code, name, limit_up_times, sector, amount "
+            "FROM limit_up_snapshot WHERE trade_date = ? ORDER BY amount DESC LIMIT 10",
+            (lu_date,),
+        ).fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        if r["code"] not in candidates:
+            candidates[r["code"]] = {
+                "code": r["code"],
+                "name": r["name"],
+                "source": f"昨日涨停(连板{r['limit_up_times'] or 1})",
+            }
+
+    # Source 3: Hot sector leading stocks
+    conn = get_connection()
+    try:
+        sec_row = conn.execute(
+            "SELECT MAX(trade_date) as d FROM sector_snapshot_item WHERE trade_date <= ?",
+            (trade_date,),
+        ).fetchone()
+        sec_date = sec_row["d"] if sec_row and sec_row["d"] else trade_date
+        rows = conn.execute(
+            "SELECT leading_stock, leading_stock_code, name "
+            "FROM sector_snapshot_item "
+            "WHERE trade_date = ? AND sector_type = 'industry' "
+            "AND leading_stock_code IS NOT NULL "
+            "ORDER BY change_pct DESC LIMIT 8",
+            (sec_date,),
+        ).fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        code = r["leading_stock_code"]
+        if code and code not in candidates:
+            candidates[code] = {
+                "code": code,
+                "name": r["leading_stock"],
+                "source": f"行业领涨({r['name']})",
+            }
+
+    return list(candidates.values())[:25]
+
+
+def _fetch_morning_session_data(candidates: list[dict]) -> list[dict]:
+    """Fetch morning session real-time data for candidates via Sina HQ API."""
+    if not candidates:
+        return []
+    results: list[dict] = []
+    code_to_cand = {c["code"]: c for c in candidates}
+    codes = ",".join(_code_to_sina(c["code"]) for c in candidates)
+
+    try:
+        r = requests.get(
+            f"https://hq.sinajs.cn/list={codes}",
+            headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        r.raise_for_status()
+    except Exception:
+        logger.warning("午盘候选股行情获取失败", exc_info=True)
+        return []
+
+    for line in r.text.strip().split("\n"):
+        m = re.match(r'var hq_str_(s[hz]\d+)="(.+)"', line.strip())
+        if not m:
+            continue
+        parts = m.group(2).split(",")
+        if len(parts) < 32:
+            continue
+        code = m.group(1)[2:]
+        cand = code_to_cand.get(code)
+        if not cand:
+            continue
+
+        open_price = _parse_float(parts[1])
+        prev_close = _parse_float(parts[2])
+        current = _parse_float(parts[3])
+        high = _parse_float(parts[4])
+        low = _parse_float(parts[5])
+        volume = _parse_float(parts[8])
+        amount = _parse_float(parts[9])
+
+        change_pct = _round2(((current or 0) - (prev_close or 0)) / prev_close * 100) if prev_close else None
+        amplitude = _round2(((high or 0) - (low or 0)) / prev_close * 100) if prev_close else None
+
+        # Signal tags
+        signals: list[str] = []
+        if change_pct is not None:
+            if change_pct > 5:
+                signals.append("上午强势")
+            elif change_pct > 2:
+                signals.append("上午偏强")
+            elif change_pct < -3:
+                signals.append("上午回调")
+        if amplitude is not None and amplitude > 8:
+            signals.append("振幅较大")
+        if open_price and current and prev_close:
+            if current > open_price and current > prev_close:
+                signals.append("阳线")
+            elif current < open_price:
+                signals.append("阴线")
+
+        results.append({
+            "code": code,
+            "name": cand["name"],
+            "source": cand["source"],
+            "current": current,
+            "open": open_price,
+            "prev_close": prev_close,
+            "high": high,
+            "low": low,
+            "change_pct": change_pct,
+            "amplitude": amplitude,
+            "volume": volume,
+            "amount": amount,
+            "signals": signals,
+        })
+
+    return results
+
+
+def _format_midday_context(midday_data: list[dict]) -> str:
+    """Format morning session data as context text for AI midday recommendation."""
+    if not midday_data:
+        return ""
+
+    sorted_data = sorted(midday_data, key=lambda x: x.get("change_pct") or 0, reverse=True)
+
+    lines = [f"=== 上午盘面分析 ({len(sorted_data)}只候选) ==="]
+    lines.append("说明: 基于11:25左右上午盘面数据，分析午后延续性")
+
+    for d in sorted_data:
+        pct_str = f"{d['change_pct']:+.2f}" if d["change_pct"] is not None else "N/A"
+        amt = (d["amount"] or 0) / 1e8
+        signal_str = f" 信号:[{','.join(d['signals'])}]" if d["signals"] else ""
+
+        lines.append(
+            f"  {d['name']}({d['code']}) 涨幅{pct_str}% 现价{d['current']} "
+            f"开{d['open']} 高{d['high']} 低{d['low']} "
+            f"成交额{amt:.2f}亿 振幅{d['amplitude']}% "
+            f"来源:{d['source']}{signal_str}"
+        )
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # AI Recommendations
 # ---------------------------------------------------------------------------
 
@@ -971,7 +1152,43 @@ _REC_MORNING_SYSTEM_PROMPT = """\
 """
 
 
-def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: list[dict] | None = None) -> str:
+_REC_MIDDAY_SYSTEM_PROMPT = """\
+你是一位资深A股投资顾问，负责根据上午盘面数据为用户挑选午后有潜力的个股。
+
+请根据以下上午盘面数据和市场信息，推荐 5-10 只有潜力的个股。要求：
+
+1. 每只股票必须包含以下字段，以 JSON 数组格式输出：
+   - code: 股票代码（如 "600519"）
+   - name: 股票名称
+   - reason: 推荐理由（50-100字，重点结合上午盘面表现和午后预期分析）
+   - strategy: 操作策略（如 "午盘追涨"、"午后低吸"、"半日强势延续"、"午后反弹"）
+   - current_price: 当前价格（根据上午行情数据填写）
+   - buy_low: 建议买入区间下限
+   - buy_high: 建议买入区间上限
+   - target_price: 目标价
+   - stop_loss_price: 止损价
+   - take_profit_price: 止盈价
+   - risk_level: 风险等级 "low"/"medium"/"high"
+   - confidence: 信心度 0-1 之间的小数
+   - sector: 所属行业/板块
+   - score: 综合评分 1-10
+
+2. 推荐原则：
+   - 重点参考上午盘面数据，上午涨幅较大且成交量放大的股票午后有延续动力
+   - 早盘推荐的股票中上午表现强势的值得继续关注
+   - 上午缩量回调到支撑位的强势股可能是午后低吸机会
+   - 关注上午板块轮动方向，午后可能继续发酵的热点板块龙头
+   - 结合上午新闻和市场情绪，寻找午后可能启动的品种
+   - 不推荐ST、*ST股票
+   - 买入区间应基于上午收盘价合理设定，buy_low 不高于当前价，buy_high 可略高于当前价
+   - 止损价一般设在买入区间下限下方 2-5%
+   - 止盈价和目标价应体现合理盈利预期
+
+3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
+"""
+
+
+def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: list[dict] | None = None, midday_data: list[dict] | None = None) -> str:
     """Collect context data for recommendation generation."""
     parts = []
 
@@ -980,6 +1197,12 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
         auction_text = _format_auction_context(auction_data)
         if auction_text:
             parts.append(auction_text)
+
+    # Morning session analysis (midday only)
+    if phase == "midday" and midday_data:
+        midday_text = _format_midday_context(midday_data)
+        if midday_text:
+            parts.append(midday_text)
 
     # Limit-up data
     conn = get_connection()
@@ -1001,7 +1224,12 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
         conn.close()
 
     if rows:
-        label = "昨日涨停股" if phase == "morning" else "今日涨停股"
+        if phase == "morning":
+            label = "昨日涨停股"
+        elif phase == "midday":
+            label = "今日上午涨停股"
+        else:
+            label = "今日涨停股"
         lines = [f"=== {label} ({len(rows)}只) ==="]
         for r in rows:
             lines.append(f"  {r['name']}({r['code']}) 涨幅{r['change_pct']}% 连板{r['limit_up_times']} 行业:{r['sector']}")
@@ -1017,11 +1245,24 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
             ).fetchone()
             sec_date = prev_row["d"] if prev_row and prev_row["d"] else trade_date
         else:
+            # midday/afternoon use today's data if available
             sec_date = trade_date
         rows = conn.execute(
             "SELECT name, change_pct, main_net_inflow, leading_stock FROM sector_snapshot_item WHERE trade_date = ? AND sector_type = 'industry' ORDER BY change_pct DESC LIMIT 10",
             (sec_date,),
         ).fetchall()
+        # Fallback to previous day if no data for today (midday may not have snapshot yet)
+        if not rows and phase == "midday":
+            prev_row = conn.execute(
+                "SELECT MAX(trade_date) as d FROM sector_snapshot_item WHERE trade_date < ?",
+                (trade_date,),
+            ).fetchone()
+            if prev_row and prev_row["d"]:
+                sec_date = prev_row["d"]
+                rows = conn.execute(
+                    "SELECT name, change_pct, main_net_inflow, leading_stock FROM sector_snapshot_item WHERE trade_date = ? AND sector_type = 'industry' ORDER BY change_pct DESC LIMIT 10",
+                    (sec_date,),
+                ).fetchall()
     finally:
         conn.close()
 
@@ -1080,6 +1321,8 @@ def generate_recommendations(trade_date: str | None = None, phase: str = "aftern
 
     # Morning phase: preselect candidates and fetch auction data
     auction_data: list[dict] | None = None
+    midday_data: list[dict] | None = None
+
     if phase == "morning":
         candidates = _preselect_morning_candidates(trade_date)
         if candidates:
@@ -1087,9 +1330,21 @@ def generate_recommendations(trade_date: str | None = None, phase: str = "aftern
             auction_data = _fetch_auction_data(candidates)
             logger.info("竞价数据获取完成: %d 只成功", len(auction_data or []))
 
-    context = _get_rec_context(trade_date, phase, auction_data=auction_data)
+    elif phase == "midday":
+        candidates = _preselect_midday_candidates(trade_date)
+        if candidates:
+            logger.info("午盘候选股: %d 只，开始获取上午行情数据", len(candidates))
+            midday_data = _fetch_morning_session_data(candidates)
+            logger.info("上午行情数据获取完成: %d 只成功", len(midday_data or []))
 
-    system_prompt = _REC_MORNING_SYSTEM_PROMPT if phase == "morning" else _REC_SYSTEM_PROMPT
+    context = _get_rec_context(trade_date, phase, auction_data=auction_data, midday_data=midday_data)
+
+    if phase == "morning":
+        system_prompt = _REC_MORNING_SYSTEM_PROMPT
+    elif phase == "midday":
+        system_prompt = _REC_MIDDAY_SYSTEM_PROMPT
+    else:
+        system_prompt = _REC_SYSTEM_PROMPT
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": context},
@@ -1188,14 +1443,19 @@ def get_recommendation_history(limit: int = 50, offset: int = 0) -> tuple[list[d
 
 def update_morning_performance(trade_date: str | None = None) -> dict:
     """Update actual_return_pct for morning recommendations using live prices."""
+    return update_recommendation_performance(trade_date, phase="morning")
+
+
+def update_recommendation_performance(trade_date: str | None = None, phase: str = "morning") -> dict:
+    """Update actual_return_pct for recommendations of a given phase using live prices."""
     if not trade_date:
         trade_date = datetime.now().strftime("%Y-%m-%d")
 
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT id, code FROM stock_recommendation WHERE trade_date = ? AND phase = 'morning' AND status = 'pending'",
-            (trade_date,),
+            "SELECT id, code FROM stock_recommendation WHERE trade_date = ? AND phase = ? AND status = 'pending'",
+            (trade_date, phase),
         ).fetchall()
     finally:
         conn.close()
@@ -1252,5 +1512,5 @@ def update_morning_performance(trade_date: str | None = None) -> dict:
     finally:
         conn.close()
 
-    logger.info("Updated morning performance for %d / %d stocks on %s", updated, len(rows), trade_date)
+    logger.info("Updated %s performance for %d / %d stocks on %s", phase, updated, len(rows), trade_date)
     return {"updated": updated, "total": len(rows), "trade_date": trade_date}

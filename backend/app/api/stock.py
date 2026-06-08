@@ -61,9 +61,10 @@ def trigger_recommendation_generation(request: GenerateRecommendationRequest | N
     phase = (request.phase if request else None) or "afternoon"
     try:
         result = generate_recommendations(trade_date, phase=phase)
+        phase_label = {"morning": "早盘", "midday": "午盘", "afternoon": "午后"}.get(phase, phase)
         return GenerateRecommendationResponse(
             success=True,
-            message=f"{'早盘' if phase == 'morning' else '午后'}推荐生成成功",
+            message=f"{phase_label}推荐生成成功",
             data=result.get("items"),
             total=result.get("total", 0),
         )

@@ -161,7 +161,8 @@ export default function StockRecommendation() {
     try {
       const res = await triggerRecommendationGeneration(date, targetPhase);
       if (res.success) {
-        message.success(`${targetPhase === "morning" ? "早盘" : "午后"}推荐生成 ${res.total} 条`);
+        const phaseLabels: Record<string, string> = { morning: "早盘", midday: "午盘", afternoon: "午后" };
+        message.success(`${phaseLabels[targetPhase] || targetPhase}推荐生成 ${res.total} 条`);
         setPhase(targetPhase);
         loadData(undefined, targetPhase);
       } else {
@@ -184,6 +185,7 @@ export default function StockRecommendation() {
 
   const genMenuItems = [
     { key: "morning", label: "生成早盘推荐" },
+    { key: "midday", label: "生成午盘推荐" },
     { key: "afternoon", label: "生成午后推荐" },
   ];
 
@@ -193,7 +195,7 @@ export default function StockRecommendation() {
         <Space>
           <Typography.Title level={4} style={{ margin: 0 }}>AI 个股推荐</Typography.Title>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            自动生成：早盘 9:26 / 午后 15:35
+            自动生成：早盘 9:26 / 午盘 11:25 / 午后 15:35
           </Typography.Text>
         </Space>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -220,6 +222,7 @@ export default function StockRecommendation() {
         onChange={handlePhaseChange}
         items={[
           { key: "morning", label: "早盘推荐" },
+          { key: "midday", label: "午盘推荐" },
           { key: "afternoon", label: "午后推荐" },
         ]}
       />
