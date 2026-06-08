@@ -478,3 +478,38 @@ export interface GenerateSectorAnalysisResponse {
   data: SectorAnalysisItem | null;
 }
 
+// --- Limit Up AI Analysis ---
+
+export interface LimitUpAnalysisItem {
+  id: number;
+  trade_date: string;
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  turnover_rate: number | null;
+  amount: number | null;
+  limit_up_times: number;
+  sector: string;
+  board: string;
+  stock_type: "limit_up" | "broken";
+  first_limit_up_time: string | null;
+  last_limit_up_time: string | null;
+  limit_up_amount: number | null;
+  ai_reason: string;
+  ai_tomorrow_judge: string;
+  ai_tomorrow_prob: string;
+  ai_confidence: number;
+  ai_key_factors: string[];
+  model_used: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LimitUpAnalysisResponse {
+  trade_date: string;
+  items: LimitUpAnalysisItem[];
+  total: number;
+}
+

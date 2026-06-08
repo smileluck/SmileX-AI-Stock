@@ -14,6 +14,7 @@ from app.api.stock import router as stock_router
 from app.api.sector_analysis import router as sector_analysis_router
 from app.api.model_config import router as model_config_router
 from app.api.strategy import router as strategy_router
+from app.api.limit_up_analysis import router as limit_up_analysis_router
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
@@ -21,6 +22,7 @@ from app.services.sector import snapshot_sector_data
 from app.services.ai_daily_report import generate_ai_daily_report
 from app.services.sector_analysis import generate_sector_analysis
 from app.services.stock import snapshot_limit_up_data, generate_recommendations, update_morning_performance, update_recommendation_performance
+from app.services.limit_up_analysis import snapshot_limit_up_analysis_data, generate_limit_up_analysis
 
 SYNC_INTERVAL_SECONDS = 300
 
@@ -75,7 +77,7 @@ async def lifespan(app: FastAPI):
         cron="25 11 * * 1-5",
     )
 
-    def _afternoon_rec_job():
+    def _review_rec_job():
         trade_date = datetime.now().strftime("%Y-%m-%d")
         try:
             update_morning_performance(trade_date)
@@ -85,12 +87,22 @@ async def lifespan(app: FastAPI):
             update_recommendation_performance(trade_date, phase="midday")
         except Exception:
             pass
-        return generate_recommendations(trade_date, phase="afternoon")
+        return generate_recommendations(trade_date, phase="review")
 
     add_job(
-        _afternoon_rec_job,
-        job_id="stock_recommendation_afternoon",
+        _review_rec_job,
+        job_id="stock_recommendation_review",
         cron="35 15 * * 1-5",
+    )
+    add_job(
+        lambda: snapshot_limit_up_analysis_data(trigger="scheduled"),
+        job_id="limit_up_analysis_snapshot",
+        cron="36 15 * * 1-5",
+    )
+    add_job(
+        lambda: generate_limit_up_analysis(datetime.now().strftime("%Y-%m-%d")),
+        job_id="limit_up_ai_analysis",
+        cron="45 15 * * 1-5",
     )
     yield
     shutdown_scheduler()
@@ -116,3 +128,4 @@ app.include_router(stock_router, prefix="/api/v1")
 app.include_router(sector_analysis_router, prefix="/api/v1")
 app.include_router(model_config_router, prefix="/api/v1")
 app.include_router(strategy_router, prefix="/api/v1")
+app.include_router(limit_up_analysis_router, prefix="/api/v1")

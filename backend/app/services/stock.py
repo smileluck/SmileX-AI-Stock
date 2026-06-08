@@ -1082,37 +1082,35 @@ def _format_midday_context(midday_data: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 
 _REC_SYSTEM_PROMPT = """\
-你是一位资深A股投资顾问，负责根据当日市场数据为用户挑选具有投资价值的个股。
+你是一位资深A股投资顾问，负责对当日早盘和午盘推荐的个股进行收盘复盘分析。
 
-请根据以下市场数据，推荐 5-10 只有潜力的个股。要求：
+以下是当日早盘(9:26)和午盘(11:25)推荐的个股列表及其收盘行情数据。请对每只推荐股票进行复盘评估。
 
-1. 每只股票必须包含以下字段，以 JSON 数组格式输出：
-   - code: 股票代码（如 "600519"）
+要求每只股票输出以下字段，以 JSON 数组格式：
+   - code: 股票代码
    - name: 股票名称
-   - reason: 推荐理由（50-100字，结合当日市场表现和基本面）
-   - strategy: 操作策略（如 "短线追涨"、"低吸等待反弹"、"趋势持有"）
-   - current_price: 当前价格（根据最新行情数据填写）
-   - buy_low: 建议买入区间下限
-   - buy_high: 建议买入区间上限
-   - target_price: 目标价
-   - stop_loss_price: 止损价
-   - take_profit_price: 止盈价
-   - risk_level: 风险等级 "low"/"medium"/"high"
-   - confidence: 信心度 0-1 之间的小数
+   - reason: 复盘评语（80-150字，分析推荐后实际走势，是否符合预期，给出后续操作建议）
+   - strategy: 后续策略（如 "继续持有"、"获利了结"、"止损离场"、"观望等待"）
+   - current_price: 收盘价
+   - buy_low: 原建议买入下限（照搬原文）
+   - buy_high: 原建议买入上限（照搬原文）
+   - target_price: 原目标价（照搬原文）
+   - stop_loss_price: 原止损价（照搬原文）
+   - take_profit_price: 原止盈价（照搬原文）
+   - risk_level: 风险等级 "low"/"medium"/"high"（根据实际表现重新评估）
+   - confidence: 信心度 0-1 之间（对后续走势的信心）
    - sector: 所属行业/板块
-   - score: 综合评分 1-10
+   - score: 综合评分 1-10（根据推荐后的实际表现打分，达标则高分，未达预期则低分）
 
-2. 推荐原则：
-   - 优先从涨停股中筛选强势品种
-   - 关注主力资金大幅流入的个股
-   - 结合热门板块和当日市场热点
-   - 兼顾不同风险偏好的品种
-   - 不推荐ST、*ST股票
-   - 买入区间应基于当前价格合理设定，buy_low 不高于当前价，buy_high 可略高于当前价
-   - 止损价一般设在买入区间下限下方 2-5%
-   - 止盈价和目标价应体现合理盈利预期
+复盘原则：
+   - 收盘价在买入区间内：说明买入机会出现，评估后续空间
+   - 收盘价高于买入区间且接近目标价：推荐成功，评估是否继续持有
+   - 收盘价低于止损价：推荐失败，分析原因
+   - 收盘价高于目标价或达到止盈价：超预期表现
+   - 结合当日板块整体表现评估个股相对强弱
+   - reason 中要具体说明盘中走势特征（是否触达买入区间、最高/最低价表现等）
 
-3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
+输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
 """
 
 _REC_MORNING_SYSTEM_PROMPT = """\
@@ -1192,6 +1190,10 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
     """Collect context data for recommendation generation."""
     parts = []
 
+    # Review phase: collect morning+midday recommendations with actual performance
+    if phase == "review":
+        return _get_review_context(trade_date)
+
     # Auction analysis (morning only)
     if phase == "morning" and auction_data:
         auction_text = _format_auction_context(auction_data)
@@ -1208,7 +1210,6 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
     conn = get_connection()
     try:
         if phase == "morning":
-            # 早盘尚无当日涨停数据，使用昨日涨停
             prev_row = conn.execute(
                 "SELECT MAX(trade_date) as d FROM limit_up_snapshot WHERE trade_date < ?",
                 (trade_date,),
@@ -1245,13 +1246,11 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
             ).fetchone()
             sec_date = prev_row["d"] if prev_row and prev_row["d"] else trade_date
         else:
-            # midday/afternoon use today's data if available
             sec_date = trade_date
         rows = conn.execute(
             "SELECT name, change_pct, main_net_inflow, leading_stock FROM sector_snapshot_item WHERE trade_date = ? AND sector_type = 'industry' ORDER BY change_pct DESC LIMIT 10",
             (sec_date,),
         ).fetchall()
-        # Fallback to previous day if no data for today (midday may not have snapshot yet)
         if not rows and phase == "midday":
             prev_row = conn.execute(
                 "SELECT MAX(trade_date) as d FROM sector_snapshot_item WHERE trade_date < ?",
@@ -1273,7 +1272,7 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
             lines.append(f"  {r['name']}: 涨幅{r['change_pct']}% 主力净流入{inflow:.2f}亿 领涨:{r['leading_stock']}")
         parts.append("\n".join(lines))
 
-    # Recent news — include overnight news for morning phase
+    # Recent news
     conn = get_connection()
     try:
         if phase == "morning":
@@ -1296,6 +1295,104 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
         parts.append("\n".join(lines))
 
     return f"=== 交易日期: {trade_date} ===\n\n" + "\n\n".join(parts)
+
+
+def _get_review_context(trade_date: str) -> str:
+    """Collect morning+midday recommendations with actual closing data for review."""
+    parts = []
+
+    # Fetch morning and midday recommendations
+    conn = get_connection()
+    try:
+        recs = conn.execute(
+            "SELECT code, name, phase, reason, strategy, current_price, buy_low, buy_high, "
+            "target_price, stop_loss_price, take_profit_price, risk_level, confidence, sector, score "
+            "FROM stock_recommendation WHERE trade_date = ? AND phase IN ('morning', 'midday') "
+            "ORDER BY phase, score DESC",
+            (trade_date,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not recs:
+        return f"=== 交易日期: {trade_date} ===\n\n当日无早盘/午盘推荐数据，无法进行复盘。"
+
+    # Batch fetch closing prices from Sina
+    codes = list({r["code"] for r in recs})
+    price_map: dict[str, dict] = {}
+    sina_codes = ",".join(_code_to_sina(c) for c in codes)
+    try:
+        r = requests.get(
+            f"https://hq.sinajs.cn/list={sina_codes}",
+            headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for line in r.text.strip().split("\n"):
+            m = re.match(r'var hq_str_(s[hz]\d+)="(.+)"', line.strip())
+            if m:
+                p = m.group(2).split(",")
+                if len(p) >= 32:
+                    code = m.group(1)[2:]
+                    prev_close = _parse_float(p[2])
+                    price_map[code] = {
+                        "open": _parse_float(p[1]),
+                        "prev_close": prev_close,
+                        "close": _parse_float(p[3]),
+                        "high": _parse_float(p[4]),
+                        "low": _parse_float(p[5]),
+                        "volume": _parse_float(p[8]),
+                        "amount": _parse_float(p[9]),
+                        "change_pct": _round2((_parse_float(p[3]) - prev_close) / prev_close * 100) if prev_close and _parse_float(p[3]) else None,
+                    }
+    except Exception:
+        logger.warning("复盘行情数据获取失败", exc_info=True)
+
+    # Format by phase
+    for phase_label, phase_key in [("早盘推荐", "morning"), ("午盘推荐", "midday")]:
+        phase_recs = [r for r in recs if r["phase"] == phase_key]
+        if not phase_recs:
+            continue
+        lines = [f"=== {phase_label} ({len(phase_recs)}只) ==="]
+        for rec in phase_recs:
+            market = price_map.get(rec["code"], {})
+            close = market.get("close")
+            high = market.get("high")
+            low = market.get("low")
+            open_price = market.get("open")
+            change_pct = market.get("change_pct")
+            amount = (market.get("amount") or 0) / 1e8
+
+            lines.append(
+                f"  {rec['name']}({rec['code']}) [{rec['strategy']}] "
+                f"推荐价:{rec['current_price']} 买入区间:{rec['buy_low']}~{rec['buy_high']} "
+                f"目标:{rec['target_price']} 止损:{rec['stop_loss_price']} 止盈:{rec['take_profit_price']} "
+                f"风险:{rec['risk_level']} 行业:{rec['sector']}"
+            )
+            lines.append(
+                f"    收盘:{close} 涨跌:{change_pct}% 开:{open_price} 高:{high} 低:{low} "
+                f"成交额:{amount:.2f}亿"
+            )
+        parts.append("\n".join(lines))
+
+    # Hot sectors for context
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT name, change_pct, main_net_inflow, leading_stock FROM sector_snapshot_item "
+            "WHERE trade_date = ? AND sector_type = 'industry' ORDER BY change_pct DESC LIMIT 10",
+            (trade_date,),
+        ).fetchall()
+    finally:
+        conn.close()
+    if rows:
+        lines = ["=== 今日热门行业 TOP10 ==="]
+        for r in rows:
+            inflow = (r["main_net_inflow"] or 0) / 1e8
+            lines.append(f"  {r['name']}: 涨幅{r['change_pct']}% 主力净流入{inflow:.2f}亿 领涨:{r['leading_stock']}")
+        parts.append("\n".join(lines))
+
+    return f"=== 交易日期: {trade_date} 收盘复盘 ===\n\n" + "\n\n".join(parts)
 
 
 def _parse_recommendation_json(text: str) -> list[dict]:
@@ -1337,6 +1434,17 @@ def generate_recommendations(trade_date: str | None = None, phase: str = "aftern
             midday_data = _fetch_morning_session_data(candidates)
             logger.info("上午行情数据获取完成: %d 只成功", len(midday_data or []))
 
+    elif phase == "review":
+        # Update actual returns for morning and midday before generating review
+        try:
+            update_morning_performance(trade_date)
+        except Exception:
+            logger.warning("早盘收益更新失败", exc_info=True)
+        try:
+            update_recommendation_performance(trade_date, phase="midday")
+        except Exception:
+            logger.warning("午盘收益更新失败", exc_info=True)
+
     context = _get_rec_context(trade_date, phase, auction_data=auction_data, midday_data=midday_data)
 
     if phase == "morning":
@@ -1355,6 +1463,17 @@ def generate_recommendations(trade_date: str | None = None, phase: str = "aftern
     if not recs:
         logger.warning("No recommendations parsed from LLM response")
         return {"items": [], "total": 0}
+
+    # Deduplicate by code for review phase (AI may return same stock from morning+midday)
+    if phase == "review":
+        seen: set[str] = set()
+        unique_recs: list[dict] = []
+        for rec in recs:
+            code = rec.get("code", "")
+            if code not in seen:
+                seen.add(code)
+                unique_recs.append(rec)
+        recs = unique_recs
 
     conn = get_connection()
     try:

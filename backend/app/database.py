@@ -189,6 +189,36 @@ CREATE TABLE IF NOT EXISTS strategy (
 );
 CREATE INDEX IF NOT EXISTS idx_strategy_type ON strategy(type);
 CREATE INDEX IF NOT EXISTS idx_strategy_enabled ON strategy(is_enabled);
+
+CREATE TABLE IF NOT EXISTS limit_up_analysis (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date            TEXT NOT NULL,
+    code                  TEXT NOT NULL,
+    name                  TEXT NOT NULL,
+    price                 REAL,
+    change_pct            REAL,
+    turnover_rate         REAL,
+    amount                REAL,
+    limit_up_times        INTEGER DEFAULT 1,
+    sector                TEXT DEFAULT '',
+    board                 TEXT DEFAULT '',
+    stock_type            TEXT NOT NULL DEFAULT 'limit_up',
+    first_limit_up_time   TEXT,
+    last_limit_up_time    TEXT,
+    limit_up_amount       REAL,
+    ai_reason             TEXT DEFAULT '',
+    ai_tomorrow_judge     TEXT DEFAULT '',
+    ai_tomorrow_prob      TEXT DEFAULT '',
+    ai_confidence         REAL DEFAULT 0,
+    ai_key_factors        TEXT DEFAULT '[]',
+    model_used            TEXT DEFAULT '',
+    status                TEXT NOT NULL DEFAULT 'pending',
+    created_at            TEXT NOT NULL,
+    updated_at            TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lua_date_code ON limit_up_analysis(trade_date, code, stock_type);
+CREATE INDEX IF NOT EXISTS idx_lua_date ON limit_up_analysis(trade_date);
+CREATE INDEX IF NOT EXISTS idx_lua_board ON limit_up_analysis(board);
 """
 
 
