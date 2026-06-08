@@ -30,11 +30,12 @@ import type { LimitUpAnalysisItem } from "../../types";
 
 const POSITIVE_COLOR = "#cf1322";
 
-const BOARD_LIST = ["沪深主板", "创业板", "科创板"] as const;
+const BOARD_LIST = ["沪深主板", "创业板", "科创板", "北交所"] as const;
 const BOARD_COLORS: Record<string, string> = {
   "沪深主板": "#1677ff",
   "创业板": "#fa8c16",
   "科创板": "#722ed1",
+  "北交所": "#13c2c2",
 };
 
 const PROB_COLORS: Record<string, string> = {

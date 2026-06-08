@@ -152,17 +152,22 @@ def get_limit_up_by_date(trade_date: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _strip_code(raw_code: str) -> str:
-    """Strip market prefix like SZ/SH from stock code."""
-    if len(raw_code) > 2 and raw_code[:2] in ("SZ", "SH"):
+    """Strip market prefix like SZ/SH/BJ from stock code."""
+    if len(raw_code) > 2 and raw_code[:2] in ("SZ", "SH", "BJ"):
         return raw_code[2:]
     return raw_code
 
 
 def _code_to_sina(code: str) -> str:
-    """Convert pure code to sina format: sh600519 / sz000651"""
+    """Convert pure code to sina format: sh600519 / sz000651 / bj830799"""
     if code.startswith("6"):
         return f"sh{code}"
+    if code.startswith("8") or code.startswith("4"):
+        return f"bj{code}"
     return f"sz{code}"
+
+
+_SINA_HQ_PATTERN = re.compile(r'var hq_str_((?:s[hz]|bj)\d+)="(.+)"')
 
 
 def _enrich_from_sina(items: list[dict]) -> list[dict]:
@@ -184,11 +189,11 @@ def _enrich_from_sina(items: list[dict]) -> list[dict]:
     lines = [l.strip() for l in r.text.strip().split("\n") if l.strip()]
     sina_map: dict[str, dict] = {}
     for line in lines:
-        m = re.match(r'var hq_str_(s[hz]\d+)="(.+)"', line)
+        m = _SINA_HQ_PATTERN.match(line)
         if m:
             parts = m.group(2).split(",")
             if len(parts) >= 10:
-                code = m.group(1)[2:]  # strip sh/sz prefix
+                code = m.group(1)[2:]  # strip sh/sz/bj prefix
                 prev_close = _parse_float(parts[2])
                 current = _parse_float(parts[3])
                 volume_shares = _parse_float(parts[8])
@@ -994,7 +999,7 @@ def _fetch_morning_session_data(candidates: list[dict]) -> list[dict]:
         return []
 
     for line in r.text.strip().split("\n"):
-        m = re.match(r'var hq_str_(s[hz]\d+)="(.+)"', line.strip())
+        m = _SINA_HQ_PATTERN.match(line.strip())
         if not m:
             continue
         parts = m.group(2).split(",")
@@ -1329,7 +1334,7 @@ def _get_review_context(trade_date: str) -> str:
         )
         r.raise_for_status()
         for line in r.text.strip().split("\n"):
-            m = re.match(r'var hq_str_(s[hz]\d+)="(.+)"', line.strip())
+            m = _SINA_HQ_PATTERN.match(line.strip())
             if m:
                 p = m.group(2).split(",")
                 if len(p) >= 32:
@@ -1596,7 +1601,7 @@ def update_recommendation_performance(trade_date: str | None = None, phase: str 
         )
         r.raise_for_status()
         for line in r.text.strip().split("\n"):
-            m = re.match(r'var hq_str_(s[hz]\d+)="(.+)"', line.strip())
+            m = _SINA_HQ_PATTERN.match(line.strip())
             if m:
                 parts = m.group(2).split(",")
                 if len(parts) >= 4:

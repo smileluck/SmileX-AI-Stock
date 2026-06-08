@@ -4,6 +4,7 @@ import { LinkOutlined } from "@ant-design/icons";
 
 function getMarket(code: string): string {
   if (code.startsWith("6")) return "SH";
+  if (code.startsWith("8") || code.startsWith("4")) return "BJ";
   return "SZ";
 }
 
