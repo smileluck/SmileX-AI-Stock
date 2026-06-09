@@ -36,6 +36,11 @@ def _classify_board(code: str) -> str:
     return "其他"
 
 
+def _is_main_board(code: str) -> bool:
+    """Return True only for 沪深主板 stocks (600/601/603/605 + 000/001/002/003)."""
+    return code.startswith(("60", "00"))
+
+
 def _round2(val) -> float | None:
     if val is None:
         return None
@@ -742,6 +747,8 @@ def _preselect_morning_candidates(trade_date: str) -> list[dict]:
             (lu_date,),
         ).fetchall()
         for r in rows:
+            if not _is_main_board(r["code"]):
+                continue
             candidates[r["code"]] = {
                 "code": r["code"],
                 "name": r["name"],
@@ -765,7 +772,7 @@ def _preselect_morning_candidates(trade_date: str) -> list[dict]:
         ).fetchall()
         for r in rows:
             code = r["leading_stock_code"]
-            if code and code not in candidates:
+            if code and code not in candidates and _is_main_board(code):
                 candidates[code] = {
                     "code": code,
                     "name": r["leading_stock"],
@@ -920,6 +927,8 @@ def _preselect_midday_candidates(trade_date: str) -> list[dict]:
     finally:
         conn.close()
     for r in rows:
+        if not _is_main_board(r["code"]):
+            continue
         candidates[r["code"]] = {
             "code": r["code"],
             "name": r["name"],
@@ -942,7 +951,7 @@ def _preselect_midday_candidates(trade_date: str) -> list[dict]:
     finally:
         conn.close()
     for r in rows:
-        if r["code"] not in candidates:
+        if r["code"] not in candidates and _is_main_board(r["code"]):
             candidates[r["code"]] = {
                 "code": r["code"],
                 "name": r["name"],
@@ -969,7 +978,7 @@ def _preselect_midday_candidates(trade_date: str) -> list[dict]:
         conn.close()
     for r in rows:
         code = r["leading_stock_code"]
-        if code and code not in candidates:
+        if code and code not in candidates and _is_main_board(code):
             candidates[code] = {
                 "code": code,
                 "name": r["leading_stock"],
@@ -1147,6 +1156,7 @@ _REC_MORNING_SYSTEM_PROMPT = """\
    - 昨日涨停今日继续高开的股票具有强延续性，值得重点关注
    - 结合热门板块和隔夜新闻利好，寻找竞价强势+消息面共振的品种
    - 不推荐ST、*ST股票
+   - 只推荐沪深主板股票（代码以60或00开头），禁止推荐科创板(688)、创业板(30)、北交所(8/4开头）
    - 买入区间应基于竞价价格合理设定，buy_low 不高于竞价价，buy_high 可略高于竞价价
    - 止损价一般设在买入区间下限下方 2-5%
    - 止盈价和目标价应体现合理盈利预期
@@ -1183,6 +1193,7 @@ _REC_MIDDAY_SYSTEM_PROMPT = """\
    - 关注上午板块轮动方向，午后可能继续发酵的热点板块龙头
    - 结合上午新闻和市场情绪，寻找午后可能启动的品种
    - 不推荐ST、*ST股票
+   - 只推荐沪深主板股票（代码以60或00开头），禁止推荐科创板(688)、创业板(30)、北交所(8/4开头）
    - 买入区间应基于上午收盘价合理设定，buy_low 不高于当前价，buy_high 可略高于当前价
    - 止损价一般设在买入区间下限下方 2-5%
    - 止盈价和目标价应体现合理盈利预期
@@ -1469,6 +1480,12 @@ def generate_recommendations(trade_date: str | None = None, phase: str = "aftern
         logger.warning("No recommendations parsed from LLM response")
         return {"items": [], "total": 0}
 
+    # Filter out non-main-board stocks (safety net in case LLM ignores the rule)
+    before = len(recs)
+    recs = [r for r in recs if _is_main_board(r.get("code", ""))]
+    if len(recs) < before:
+        logger.info("过滤掉 %d 只非沪深主板推荐", before - len(recs))
+
     # Deduplicate by code for review phase (AI may return same stock from morning+midday)
     if phase == "review":
         seen: set[str] = set()
@@ -1479,6 +1496,50 @@ def generate_recommendations(trade_date: str | None = None, phase: str = "aftern
                 seen.add(code)
                 unique_recs.append(rec)
         recs = unique_recs
+
+    # Override LLM-generated current_price with real-time prices
+    if phase in ("morning", "midday", "review") and recs:
+        codes = [r.get("code", "") for r in recs if r.get("code")]
+        if codes:
+            sina_codes = ",".join(_code_to_sina(c) for c in codes)
+            try:
+                r = requests.get(
+                    f"https://hq.sinajs.cn/list={sina_codes}",
+                    headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+                    timeout=10,
+                )
+                r.raise_for_status()
+                real_price: dict[str, float | None] = {}
+                for line in r.text.strip().split("\n"):
+                    m = _SINA_HQ_PATTERN.match(line.strip())
+                    if m:
+                        parts = m.group(2).split(",")
+                        if len(parts) >= 4:
+                            code = m.group(1)[2:]
+                            real_price[code] = _parse_float(parts[3])
+                for rec in recs:
+                    code = rec.get("code", "")
+                    rp = real_price.get(code)
+                    if rp is None:
+                        continue
+                    llm_price = _parse_float(rec.get("current_price"))
+                    rec["current_price"] = rp
+                    # Adjust buy_low/buy_high proportionally when LLM price deviates
+                    if llm_price and llm_price > 0:
+                        ratio = rp / llm_price
+                        bl = _parse_float(rec.get("buy_low"))
+                        bh = _parse_float(rec.get("buy_high"))
+                        tp = _parse_float(rec.get("target_price"))
+                        sl = _parse_float(rec.get("stop_loss_price"))
+                        tk = _parse_float(rec.get("take_profit_price"))
+                        if bl: rec["buy_low"] = _round2(bl * ratio)
+                        if bh: rec["buy_high"] = _round2(bh * ratio)
+                        if tp: rec["target_price"] = _round2(tp * ratio)
+                        if sl: rec["stop_loss_price"] = _round2(sl * ratio)
+                        if tk: rec["take_profit_price"] = _round2(tk * ratio)
+                logger.info("覆盖 %d 只推荐股的 current_price 及买入区间为实时价格", sum(1 for c in codes if c in real_price))
+            except Exception:
+                logger.warning("实时价格覆盖失败，使用 LLM 生成价格", exc_info=True)
 
     conn = get_connection()
     try:
