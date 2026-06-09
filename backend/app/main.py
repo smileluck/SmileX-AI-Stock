@@ -15,6 +15,7 @@ from app.api.sector_analysis import router as sector_analysis_router
 from app.api.model_config import router as model_config_router
 from app.api.strategy import router as strategy_router
 from app.api.limit_up_analysis import router as limit_up_analysis_router
+from app.api.stock_daily import router as stock_daily_router
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
@@ -23,6 +24,7 @@ from app.services.ai_daily_report import generate_ai_daily_report
 from app.services.sector_analysis import generate_sector_analysis
 from app.services.stock import snapshot_limit_up_data, generate_recommendations, update_morning_performance, update_recommendation_performance
 from app.services.limit_up_analysis import snapshot_limit_up_analysis_data, generate_limit_up_analysis
+from app.services.stock_daily import snapshot_stock_daily
 
 SYNC_INTERVAL_SECONDS = 300
 
@@ -40,6 +42,11 @@ async def lifespan(app: FastAPI):
         lambda: generate_daily_analysis(datetime.now().strftime("%Y-%m-%d")),
         job_id="daily_market_analysis",
         cron="15 15 * * 1-5",
+    )
+    add_job(
+        lambda: snapshot_stock_daily(trigger="scheduled"),
+        job_id="stock_daily_snapshot",
+        cron="10 15 * * 1-5",
     )
     add_job(
         lambda: snapshot_sector_data(trigger="scheduled"),
@@ -139,3 +146,4 @@ app.include_router(sector_analysis_router, prefix="/api/v1")
 app.include_router(model_config_router, prefix="/api/v1")
 app.include_router(strategy_router, prefix="/api/v1")
 app.include_router(limit_up_analysis_router, prefix="/api/v1")
+app.include_router(stock_daily_router, prefix="/api/v1")

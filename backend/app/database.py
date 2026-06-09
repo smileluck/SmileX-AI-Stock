@@ -219,6 +219,42 @@ CREATE TABLE IF NOT EXISTS limit_up_analysis (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lua_date_code ON limit_up_analysis(trade_date, code, stock_type, phase);
 CREATE INDEX IF NOT EXISTS idx_lua_date ON limit_up_analysis(trade_date);
 CREATE INDEX IF NOT EXISTS idx_lua_board ON limit_up_analysis(board);
+
+CREATE TABLE IF NOT EXISTS stock_daily (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date              TEXT NOT NULL,
+    code                    TEXT NOT NULL,
+    name                    TEXT NOT NULL,
+    board                   TEXT NOT NULL DEFAULT '',
+    open                    REAL,
+    close                   REAL,
+    high                    REAL,
+    low                     REAL,
+    prev_close              REAL,
+    change_pct              REAL,
+    change                  REAL,
+    volume                  REAL,
+    amount                  REAL,
+    turnover_rate           REAL,
+    volume_ratio            REAL,
+    amplitude               REAL,
+    pe_ttm                  REAL,
+    pe_static               REAL,
+    pb                      REAL,
+    total_market_cap        REAL,
+    circulating_market_cap  REAL,
+    main_net_inflow         REAL,
+    main_net_inflow_pct     REAL,
+    super_large_net         REAL,
+    large_net               REAL,
+    medium_net              REAL,
+    small_net               REAL,
+    created_at              TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sd_date_code ON stock_daily(trade_date, code);
+CREATE INDEX IF NOT EXISTS idx_sd_date ON stock_daily(trade_date);
+CREATE INDEX IF NOT EXISTS idx_sd_board ON stock_daily(board);
+CREATE INDEX IF NOT EXISTS idx_sd_code ON stock_daily(code);
 """
 
 
