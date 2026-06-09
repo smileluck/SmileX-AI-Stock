@@ -35,12 +35,18 @@ A股智能分析系统，基于 FastAPI + React + LiteLLM。
 | 任务 | 时间 | 说明 |
 |------|------|------|
 | `news_sync` | 每 5 分钟 | 从 14 个新闻源抓取 |
+| `stock_recommendation_morning` | 工作日 9:26 | 早盘AI个股推荐 |
+| `stock_recommendation_midday` | 工作日 11:25 | 午盘AI个股推荐 |
+| `limit_up_analysis_snapshot_midday` | 工作日 12:00 | 午间涨停/炸板数据采集 |
+| `limit_up_ai_analysis_midday` | 工作日 12:05 | 午间涨停AI分析 |
 | `daily_market_analysis` | 工作日 15:15 | 指数分析 + 次日预测 |
 | `sector_snapshot` | 工作日 15:20 | 板块快照 + 资金流 |
 | `sector_ai_analysis` | 工作日 15:22 | 板块AI分析 |
 | `ai_daily_report` | 工作日 15:25 | AI 综合收盘报告 |
 | `limit_up_snapshot` | 工作日 15:30 | 涨停股快照 |
-| `stock_recommendation` | 工作日 15:35 | AI 个股推荐生成 |
+| `stock_recommendation_review` | 工作日 15:35 | 收盘复盘推荐 |
+| `limit_up_analysis_snapshot_close` | 工作日 15:00 | 收盘涨停/炸板数据采集 |
+| `limit_up_ai_analysis_close` | 工作日 15:05 | 收盘涨停AI分析 |
 
 ## 数据库
 

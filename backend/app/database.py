@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS limit_up_analysis (
     created_at            TEXT NOT NULL,
     updated_at            TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_lua_date_code ON limit_up_analysis(trade_date, code, stock_type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lua_date_code ON limit_up_analysis(trade_date, code, stock_type, phase);
 CREATE INDEX IF NOT EXISTS idx_lua_date ON limit_up_analysis(trade_date);
 CREATE INDEX IF NOT EXISTS idx_lua_board ON limit_up_analysis(board);
 """
@@ -238,6 +238,8 @@ _MIGRATIONS = [
     "DROP INDEX IF EXISTS idx_sr_date_code",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_sr_date_code_phase ON stock_recommendation(trade_date, code, phase)",
     "CREATE INDEX IF NOT EXISTS idx_sr_phase ON stock_recommendation(phase)",
+    "ALTER TABLE limit_up_analysis ADD COLUMN phase TEXT NOT NULL DEFAULT 'close'",
+    "DROP INDEX IF EXISTS idx_lua_date_code",
 ]
 
 

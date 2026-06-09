@@ -95,14 +95,24 @@ async def lifespan(app: FastAPI):
         cron="35 15 * * 1-5",
     )
     add_job(
-        lambda: snapshot_limit_up_analysis_data(trigger="scheduled"),
-        job_id="limit_up_analysis_snapshot",
-        cron="36 15 * * 1-5",
+        lambda: snapshot_limit_up_analysis_data(trigger="scheduled", phase="midday"),
+        job_id="limit_up_analysis_snapshot_midday",
+        cron="0 12 * * 1-5",
     )
     add_job(
-        lambda: generate_limit_up_analysis(datetime.now().strftime("%Y-%m-%d")),
-        job_id="limit_up_ai_analysis",
-        cron="45 15 * * 1-5",
+        lambda: generate_limit_up_analysis(datetime.now().strftime("%Y-%m-%d"), phase="midday"),
+        job_id="limit_up_ai_analysis_midday",
+        cron="5 12 * * 1-5",
+    )
+    add_job(
+        lambda: snapshot_limit_up_analysis_data(trigger="scheduled", phase="close"),
+        job_id="limit_up_analysis_snapshot_close",
+        cron="0 15 * * 1-5",
+    )
+    add_job(
+        lambda: generate_limit_up_analysis(datetime.now().strftime("%Y-%m-%d"), phase="close"),
+        job_id="limit_up_ai_analysis_close",
+        cron="5 15 * * 1-5",
     )
     yield
     shutdown_scheduler()

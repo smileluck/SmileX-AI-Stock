@@ -47,7 +47,7 @@ def fetch_broken_limit_stocks(date: str) -> list[dict]:
     return items
 
 
-def snapshot_limit_up_analysis_data(trade_date: str | None = None, trigger: str = "manual") -> dict:
+def snapshot_limit_up_analysis_data(trade_date: str | None = None, trigger: str = "manual", phase: str = "close") -> dict:
     """Fetch limit-up + broken-limit stocks and persist to limit_up_analysis table."""
     if trade_date is None:
         trade_date = datetime.now().strftime("%Y-%m-%d")
@@ -69,14 +69,14 @@ def snapshot_limit_up_analysis_data(trade_date: str | None = None, trigger: str 
 
     conn = get_connection()
     try:
-        conn.execute("DELETE FROM limit_up_analysis WHERE trade_date = ?", (trade_date,))
+        conn.execute("DELETE FROM limit_up_analysis WHERE trade_date = ? AND phase = ?", (trade_date, phase))
         conn.executemany(
             """INSERT INTO limit_up_analysis
                (trade_date, code, name, price, change_pct, turnover_rate, amount,
                 limit_up_times, sector, board, stock_type,
                 first_limit_up_time, last_limit_up_time, limit_up_amount,
-                status, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                status, phase, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [
                 (
                     trade_date, i["code"], i["name"], i["price"], i["change_pct"],
@@ -84,14 +84,14 @@ def snapshot_limit_up_analysis_data(trade_date: str | None = None, trigger: str 
                     i.get("sector", ""), i.get("board", ""), i["stock_type"],
                     i.get("first_limit_up_time"), i.get("last_limit_up_time"),
                     i.get("limit_up_amount"),
-                    "pending", now, now,
+                    "pending", phase, now, now,
                 )
                 for i in all_items
             ],
         )
         conn.execute(
             "INSERT INTO sync_log (job_id, trigger, results, total, status, duration, created_at) VALUES (?,?,?,?,?,?,?)",
-            ("limit_up_analysis_snapshot", trigger, json.dumps({"limit_up": len(limit_up_items), "broken": len(broken_items)}),
+            (f"limit_up_analysis_snapshot_{phase}", trigger, json.dumps({"limit_up": len(limit_up_items), "broken": len(broken_items)}),
              len(all_items), "ok", 0, now),
         )
         conn.commit()
@@ -102,12 +102,13 @@ def snapshot_limit_up_analysis_data(trade_date: str | None = None, trigger: str 
     finally:
         conn.close()
 
-    logger.info("Limit-up analysis snapshot for %s: %d limit_up + %d broken", trade_date, len(limit_up_items), len(broken_items))
+    logger.info("Limit-up analysis snapshot (%s) for %s: %d limit_up + %d broken", phase, trade_date, len(limit_up_items), len(broken_items))
     return {
         "trade_date": trade_date,
         "item_count": len(all_items),
         "limit_up_count": len(limit_up_items),
         "broken_count": len(broken_items),
+        "phase": phase,
         "success": True,
         "message": "ok",
     }
@@ -153,9 +154,10 @@ _SYSTEM_PROMPT = """\
 """
 
 
-def _build_analysis_context(trade_date: str) -> str:
+def _build_analysis_context(trade_date: str, phase: str = "close") -> str:
     """Build context text from limit_up_analysis data + sector data + news."""
-    parts = [f"=== 交易日期: {trade_date} ===\n"]
+    phase_label = "午间" if phase == "midday" else "收盘"
+    parts = [f"=== 交易日期: {trade_date} ({phase_label}数据) ===\n"]
 
     conn = get_connection()
     try:
@@ -163,9 +165,9 @@ def _build_analysis_context(trade_date: str) -> str:
         rows = conn.execute(
             "SELECT code, name, price, change_pct, turnover_rate, amount, "
             "limit_up_times, sector, board, first_limit_up_time, last_limit_up_time, limit_up_amount "
-            "FROM limit_up_analysis WHERE trade_date = ? AND stock_type = 'limit_up' "
+            "FROM limit_up_analysis WHERE trade_date = ? AND stock_type = 'limit_up' AND phase = ? "
             "ORDER BY amount DESC NULLS LAST LIMIT 50",
-            (trade_date,),
+            (trade_date, phase),
         ).fetchall()
 
         if rows:
@@ -185,9 +187,9 @@ def _build_analysis_context(trade_date: str) -> str:
         rows = conn.execute(
             "SELECT code, name, price, change_pct, turnover_rate, amount, "
             "limit_up_times, sector, board, first_limit_up_time, last_limit_up_time, limit_up_amount "
-            "FROM limit_up_analysis WHERE trade_date = ? AND stock_type = 'broken' "
+            "FROM limit_up_analysis WHERE trade_date = ? AND stock_type = 'broken' AND phase = ? "
             "ORDER BY amount DESC NULLS LAST",
-            (trade_date,),
+            (trade_date, phase),
         ).fetchall()
 
         if rows:
@@ -247,29 +249,14 @@ def _parse_analysis_json(text: str) -> list[dict]:
     return []
 
 
-def generate_limit_up_analysis(trade_date: str | None = None) -> dict:
+def generate_limit_up_analysis(trade_date: str | None = None, phase: str = "close") -> dict:
     """Generate AI analysis for all limit-up stocks of the day."""
     if not trade_date:
         trade_date = datetime.now().strftime("%Y-%m-%d")
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    conn = get_connection()
-    try:
-        existing = conn.execute(
-            "SELECT COUNT(*) as cnt FROM limit_up_analysis WHERE trade_date = ? AND status = 'completed'",
-            (trade_date,),
-        ).fetchone()
-        if existing["cnt"] > 0:
-            rows = conn.execute(
-                "SELECT * FROM limit_up_analysis WHERE trade_date = ? ORDER BY stock_type, amount DESC NULLS LAST",
-                (trade_date,),
-            ).fetchall()
-            return {"trade_date": trade_date, "items": [dict(r) for r in rows], "total": len(rows), "status": "cached"}
-    finally:
-        conn.close()
-
-    context = _build_analysis_context(trade_date)
+    context = _build_analysis_context(trade_date, phase=phase)
     if not context or "封板股" not in context and "炸板股" not in context:
         return {"trade_date": trade_date, "items": [], "total": 0, "status": "no_data"}
 
@@ -299,8 +286,8 @@ def generate_limit_up_analysis(trade_date: str | None = None) -> dict:
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT id, code FROM limit_up_analysis WHERE trade_date = ?",
-            (trade_date,),
+            "SELECT id, code FROM limit_up_analysis WHERE trade_date = ? AND phase = ?",
+            (trade_date, phase),
         ).fetchall()
 
         updated = 0
@@ -341,8 +328,8 @@ def generate_limit_up_analysis(trade_date: str | None = None) -> dict:
         conn.commit()
 
         result_rows = conn.execute(
-            "SELECT * FROM limit_up_analysis WHERE trade_date = ? ORDER BY stock_type, amount DESC NULLS LAST",
-            (trade_date,),
+            "SELECT * FROM limit_up_analysis WHERE trade_date = ? AND phase = ? ORDER BY stock_type, amount DESC NULLS LAST",
+            (trade_date, phase),
         ).fetchall()
         items = [dict(r) for r in result_rows]
     except Exception:
@@ -352,16 +339,16 @@ def generate_limit_up_analysis(trade_date: str | None = None) -> dict:
     finally:
         conn.close()
 
-    logger.info("Limit-up AI analysis for %s: %d/%d stocks analyzed", trade_date, updated, len(rows or []))
-    return {"trade_date": trade_date, "items": items, "total": len(items), "status": "ok"}
+    logger.info("Limit-up AI analysis (%s) for %s: %d/%d stocks analyzed", phase, trade_date, updated, len(rows or []))
+    return {"trade_date": trade_date, "items": items, "total": len(items), "phase": phase, "status": "ok"}
 
 
 # ---------------------------------------------------------------------------
 # Query Functions
 # ---------------------------------------------------------------------------
 
-def get_limit_up_analysis_by_date(trade_date: str, board: str | None = None, stock_type: str | None = None) -> dict:
-    """Get AI analysis results, optionally filtered by board and stock_type."""
+def get_limit_up_analysis_by_date(trade_date: str, board: str | None = None, stock_type: str | None = None, phase: str | None = None) -> dict:
+    """Get AI analysis results, optionally filtered by board, stock_type and phase."""
     conn = get_connection()
     try:
         conditions = ["trade_date = ?"]
@@ -372,6 +359,9 @@ def get_limit_up_analysis_by_date(trade_date: str, board: str | None = None, sto
         if stock_type:
             conditions.append("stock_type = ?")
             params.append(stock_type)
+        if phase:
+            conditions.append("phase = ?")
+            params.append(phase)
 
         where = " AND ".join(conditions)
         rows = conn.execute(

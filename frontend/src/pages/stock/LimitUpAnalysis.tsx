@@ -79,19 +79,20 @@ export default function LimitUpAnalysis() {
   const [date, setDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
   const [activeBoard, setActiveBoard] = useState<string>("all");
   const [activeType, setActiveType] = useState<string>("all");
+  const [activePhase, setActivePhase] = useState<string>("close");
 
-  const loadData = useCallback(async (tradeDate?: string) => {
+  const loadData = useCallback(async (tradeDate?: string, phase?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchLimitUpAnalysis(tradeDate || date);
+      const res = await fetchLimitUpAnalysis(tradeDate || date, undefined, undefined, phase || activePhase);
       setItems(res.items || []);
     } catch {
       setError("获取涨停分析数据失败，请检查后端服务是否启动");
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, activePhase]);
 
   useEffect(() => {
     loadData();
@@ -100,7 +101,7 @@ export default function LimitUpAnalysis() {
   const handleSnapshot = async () => {
     setSnapLoading(true);
     try {
-      const res = await triggerLimitUpAnalysisSnapshot();
+      const res = await triggerLimitUpAnalysisSnapshot(activePhase);
       if (res.success) {
         message.success(`采集完成：封板${res.limit_up_count || 0}只，炸板${res.broken_count || 0}只`);
         loadData();
@@ -117,7 +118,7 @@ export default function LimitUpAnalysis() {
   const handleGenerate = async () => {
     setGenLoading(true);
     try {
-      const res = await triggerLimitUpAnalysisGenerate(date);
+      const res = await triggerLimitUpAnalysisGenerate(date, activePhase);
       if (res.success) {
         message.success("AI分析生成完成");
         loadData();
@@ -348,6 +349,17 @@ export default function LimitUpAnalysis() {
       </div>
 
       {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
+
+      <Tabs
+        activeKey={activePhase}
+        onChange={(key) => { setActivePhase(key); loadData(undefined, key); }}
+        items={[
+          { key: "midday", label: "午间 (12:00)" },
+          { key: "close", label: "收盘 (15:00)" },
+        ]}
+        size="small"
+        style={{ marginBottom: 16 }}
+      />
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
