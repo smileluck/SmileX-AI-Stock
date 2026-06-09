@@ -456,13 +456,44 @@ export interface GenerateRecommendationResponse {
 
 // --- Sector AI Analysis ---
 
+export interface SectorPredictionItem {
+  name: string;
+  direction: "up" | "down" | "flat";
+  confidence: number;
+  heat: number;
+  key_drivers: string[];
+  risk_level: "low" | "medium" | "high";
+}
+
+export interface SectorPredictionSummary {
+  predicted_active_sectors: SectorPredictionItem[];
+  overall_rotation: string;
+  confidence: number;
+  key_factors: string[];
+  risk_level: "low" | "medium" | "high";
+}
+
+export interface SectorActualData {
+  trade_date: string;
+  sector_type: string;
+  top_gainers: { name: string; change_pct: number | null; main_net_inflow: number | null }[];
+  top_losers: { name: string; change_pct: number | null; main_net_inflow: number | null }[];
+  fetch_time: string;
+}
+
 export interface SectorAnalysisItem {
   id: number;
   trade_date: string;
   sector_type: string;
   analysis_text: string;
+  prediction_text: string;
+  prediction_summary: SectorPredictionSummary;
+  actual_data: SectorActualData;
+  review_text: string;
+  scored_news: ScoredNewsItem[];
+  trend_data: Record<string, unknown>;
   model_used: string;
-  status: string;
+  status: "pending" | "analyzed" | "reviewed";
   created_at: string;
   updated_at: string;
 }

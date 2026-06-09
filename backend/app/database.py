@@ -152,16 +152,22 @@ CREATE INDEX IF NOT EXISTS idx_sr_date ON stock_recommendation(trade_date);
 CREATE INDEX IF NOT EXISTS idx_sr_status ON stock_recommendation(status);
 
 CREATE TABLE IF NOT EXISTS sector_analysis (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    trade_date    TEXT UNIQUE NOT NULL,
-    sector_type   TEXT NOT NULL DEFAULT 'all',
-    analysis_text TEXT NOT NULL DEFAULT '',
-    model_used    TEXT NOT NULL DEFAULT '',
-    status        TEXT NOT NULL DEFAULT 'pending',
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date            TEXT NOT NULL,
+    sector_type           TEXT NOT NULL,
+    analysis_text         TEXT NOT NULL DEFAULT '',
+    prediction_text       TEXT NOT NULL DEFAULT '',
+    prediction_summary    TEXT NOT NULL DEFAULT '{}',
+    actual_data           TEXT NOT NULL DEFAULT '{}',
+    review_text           TEXT NOT NULL DEFAULT '',
+    scored_news           TEXT NOT NULL DEFAULT '[]',
+    trend_data            TEXT NOT NULL DEFAULT '{}',
+    model_used            TEXT NOT NULL DEFAULT '',
+    status                TEXT NOT NULL DEFAULT 'pending',
+    created_at            TEXT NOT NULL,
+    updated_at            TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_saan_date ON sector_analysis(trade_date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_saan_date_type ON sector_analysis(trade_date, sector_type);
 
 CREATE TABLE IF NOT EXISTS model_config (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -276,6 +282,27 @@ _MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_sr_phase ON stock_recommendation(phase)",
     "ALTER TABLE limit_up_analysis ADD COLUMN phase TEXT NOT NULL DEFAULT 'close'",
     "DROP INDEX IF EXISTS idx_lua_date_code",
+    "ALTER TABLE sector_analysis RENAME TO sector_analysis_old",
+    ("CREATE TABLE IF NOT EXISTS sector_analysis ("
+     "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+     "trade_date TEXT NOT NULL, sector_type TEXT NOT NULL, "
+     "analysis_text TEXT NOT NULL DEFAULT '', "
+     "prediction_text TEXT NOT NULL DEFAULT '', "
+     "prediction_summary TEXT NOT NULL DEFAULT '{}', "
+     "actual_data TEXT NOT NULL DEFAULT '{}', "
+     "review_text TEXT NOT NULL DEFAULT '', "
+     "scored_news TEXT NOT NULL DEFAULT '[]', "
+     "trend_data TEXT NOT NULL DEFAULT '{}', "
+     "model_used TEXT NOT NULL DEFAULT '', "
+     "status TEXT NOT NULL DEFAULT 'pending', "
+     "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_saan_date_type ON sector_analysis(trade_date, sector_type)",
+    ("INSERT OR IGNORE INTO sector_analysis "
+     "(id, trade_date, sector_type, analysis_text, prediction_text, prediction_summary, "
+     "actual_data, review_text, scored_news, trend_data, model_used, status, created_at, updated_at) "
+     "SELECT id, trade_date, 'all', analysis_text, '', '{}', '{}', '', '[]', '{}', "
+     "model_used, status, created_at, updated_at FROM sector_analysis_old"),
+    "DROP TABLE IF EXISTS sector_analysis_old",
 ]
 
 

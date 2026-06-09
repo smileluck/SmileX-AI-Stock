@@ -370,6 +370,12 @@ class SectorAnalysisItem(BaseModel):
     trade_date: str
     sector_type: str
     analysis_text: str
+    prediction_text: str = ""
+    prediction_summary: dict = {}
+    actual_data: dict = {}
+    review_text: str = ""
+    scored_news: list[dict] = []
+    trend_data: dict = {}
     model_used: str
     status: str
     created_at: str
@@ -383,6 +389,7 @@ class SectorAnalysisResponse(BaseModel):
 
 class GenerateSectorAnalysisRequest(BaseModel):
     trade_date: str | None = None
+    sector_type: str | None = None
 
 
 class GenerateSectorAnalysisResponse(BaseModel):
