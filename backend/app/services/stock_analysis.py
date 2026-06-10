@@ -6,7 +6,12 @@ from datetime import datetime
 from app.database import get_connection
 from app.services import llm
 from app.services.stock import _classify_board, _fetch_one_stock_concepts, _strip_code
-from app.services.stock_daily import get_stock_daily_detail
+from app.services.stock_daily import (
+    get_stock_daily_detail,
+    snapshot_stock_daily,
+    _fetch_one_stock_spot,
+    _insert_stock_daily,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,14 +189,30 @@ def _update_record(analysis_id: int, **fields) -> None:
         conn.close()
 
 
-def generate_stock_analysis(code: str, trade_date: str | None = None) -> dict:
-    normalized_code = _strip_code(code.strip().upper())
-    stock_data = get_stock_daily_detail(normalized_code, trade_date)
-    if not stock_data:
-        raise ValueError("未找到该股票行情数据，请先采集股票日行情或检查代码")
+def _create_waiting_record(code: str, trade_date: str) -> dict:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    board = _classify_board(code)
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """INSERT INTO stock_analysis
+               (trade_date, code, name, board, stock_data, context_data, recent_news, status, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (trade_date, code, "", board, "{}", "{}", "[]", "waiting_data", now, now),
+        )
+        conn.commit()
+        analysis_id = cur.lastrowid
+    finally:
+        conn.close()
 
-    context_data, news = _build_context(stock_data)
-    analysis_id = _create_pending_record(stock_data, context_data, news)
+    result = get_stock_analysis_detail(analysis_id)
+    if not result:
+        raise RuntimeError("创建 waiting_data 记录失败")
+    return result
+
+
+def _run_llm_analysis(stock_data: dict, context_data: dict, news: list[dict], analysis_id: int) -> None:
+    """Run LLM analysis and update the record."""
     try:
         payload = {
             "stock_data": stock_data,
@@ -202,7 +223,7 @@ def generate_stock_analysis(code: str, trade_date: str | None = None) -> dict:
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": "请分析以下个股数据：\n" + json.dumps(payload, ensure_ascii=False, indent=2)},
         ]
-        response_text = llm.analysis_chat(messages)
+        response_text = llm.function_chat("stock_analysis", messages)
         prediction_summary = _parse_prediction_json(response_text)
         analysis_text, prediction_text = _split_analysis_text(response_text)
         _update_record(
@@ -217,6 +238,34 @@ def generate_stock_analysis(code: str, trade_date: str | None = None) -> dict:
         logger.error("生成个股分析失败: %s", e, exc_info=True)
         _update_record(analysis_id, analysis_text=str(e), status="failed")
         raise
+
+
+def generate_stock_analysis(code: str, trade_date: str | None = None) -> dict:
+    normalized_code = _strip_code(code.strip().upper())
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+
+    stock_data = get_stock_daily_detail(normalized_code, trade_date)
+    if not stock_data:
+        # 1. 尝试实时采集单只股票
+        stock_data = _fetch_one_stock_spot(normalized_code)
+        if stock_data:
+            stock_data["trade_date"] = trade_date
+            _insert_stock_daily(stock_data, trade_date)
+            logger.info("实时采集单只股票数据成功: %s", normalized_code)
+        else:
+            # 2. 实时采集失败，挂起等待定时任务
+            logger.info("实时采集失败，创建 waiting_data 记录: %s", normalized_code)
+            waiting_record = _create_waiting_record(normalized_code, trade_date)
+            try:
+                snapshot_stock_daily(trade_date, trigger="manual")
+            except Exception:
+                logger.warning("触发全量采集失败", exc_info=True)
+            return waiting_record
+
+    context_data, news = _build_context(stock_data)
+    analysis_id = _create_pending_record(stock_data, context_data, news)
+    _run_llm_analysis(stock_data, context_data, news, analysis_id)
 
     result = get_stock_analysis_detail(analysis_id)
     if not result:
@@ -269,3 +318,48 @@ def get_stock_analysis_detail(analysis_id: int) -> dict | None:
     finally:
         conn.close()
     return _row_to_dict(row) if row else None
+
+
+def process_waiting_stock_analysis(trade_date: str) -> dict:
+    """Process all waiting_data stock_analysis records for a given trade_date."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT id, code, trade_date FROM stock_analysis
+               WHERE trade_date = ? AND status = 'waiting_data'""",
+            (trade_date,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    processed = 0
+    failed = 0
+
+    for row in rows:
+        code = row["code"]
+        trade_date = row["trade_date"]
+        analysis_id = row["id"]
+
+        stock_data = get_stock_daily_detail(code, trade_date)
+        if not stock_data:
+            logger.warning("定时任务仍无法获取股票数据: %s %s", code, trade_date)
+            failed += 1
+            continue
+
+        try:
+            context_data, news = _build_context(stock_data)
+            _update_record(
+                analysis_id,
+                stock_data=json.dumps(stock_data, ensure_ascii=False),
+                context_data=json.dumps(context_data, ensure_ascii=False),
+                recent_news=json.dumps(news, ensure_ascii=False),
+                name=stock_data.get("name", ""),
+                board=stock_data.get("board") or _classify_board(code),
+            )
+            _run_llm_analysis(stock_data, context_data, news, analysis_id)
+            processed += 1
+        except Exception:
+            logger.exception("处理 waiting_data 分析失败: %s %s", code, trade_date)
+            failed += 1
+
+    return {"processed": processed, "failed": failed, "total": len(rows)}

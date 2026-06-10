@@ -59,6 +59,110 @@ def _classify_board(code: str) -> str:
     return "其他"
 
 
+def _code_to_secid(code: str) -> str:
+    if code.startswith("6"):
+        return f"1.{code}"
+    return f"0.{code}"
+
+
+# ---------------------------------------------------------------------------
+# Single stock spot fetch (realtime fallback)
+# ---------------------------------------------------------------------------
+
+def _fetch_one_stock_spot(code: str) -> dict | None:
+    """Fetch single stock spot data from East Money push2 API."""
+    secid = _code_to_secid(code)
+    try:
+        r = requests.get(
+            "http://push2.eastmoney.com/api/qt/stock/get",
+            params={
+                "secid": secid,
+                "fltt": "2",
+                "fields": _STOCK_FIELDS,
+            },
+            timeout=10,
+            headers=_EASTMONEY_HEADERS,
+        )
+        r.raise_for_status()
+        data = r.json().get("data")
+        if not data:
+            return None
+    except Exception:
+        logger.warning("East Money single stock fetch failed: %s", code, exc_info=True)
+        return None
+
+    code = str(data.get("f12", ""))
+    return {
+        "code": code,
+        "name": str(data.get("f14", "")),
+        "board": _classify_board(code),
+        "close": _parse_float(data.get("f2")),
+        "change_pct": _round2(_parse_float(data.get("f3"))),
+        "change": _parse_float(data.get("f4")),
+        "volume": _parse_float(data.get("f5")),
+        "amount": _parse_float(data.get("f6")),
+        "amplitude": _round2(_parse_float(data.get("f7"))),
+        "turnover_rate": _round2(_parse_float(data.get("f8"))),
+        "pe_ttm": _round2(_parse_float(data.get("f9"))),
+        "volume_ratio": _round2(_parse_float(data.get("f10"))),
+        "high": _parse_float(data.get("f15")),
+        "low": _parse_float(data.get("f16")),
+        "open": _parse_float(data.get("f17")),
+        "prev_close": _parse_float(data.get("f18")),
+        "total_market_cap": _parse_float(data.get("f20")),
+        "circulating_market_cap": _parse_float(data.get("f21")),
+        "pb": _round2(_parse_float(data.get("f23"))),
+        "main_net_inflow": _parse_float(data.get("f62")),
+        "super_large_net": _parse_float(data.get("f66")),
+        "large_net": _parse_float(data.get("f72")),
+        "medium_net": _parse_float(data.get("f78")),
+        "small_net": _parse_float(data.get("f84")),
+        "pe_static": _round2(_parse_float(data.get("f115"))),
+        "main_net_inflow_pct": _round2(_parse_float(data.get("f184"))),
+    }
+
+
+def _insert_stock_daily(item: dict, trade_date: str) -> None:
+    """Insert or replace a single stock daily record."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM stock_daily WHERE trade_date = ? AND code = ?",
+            (trade_date, item["code"]),
+        )
+        conn.execute(
+            """INSERT INTO stock_daily
+               (trade_date, code, name, board,
+                open, close, high, low, prev_close,
+                change_pct, change, volume, amount,
+                turnover_rate, volume_ratio, amplitude,
+                pe_ttm, pe_static, pb,
+                total_market_cap, circulating_market_cap,
+                main_net_inflow, main_net_inflow_pct,
+                super_large_net, large_net, medium_net, small_net,
+                created_at)
+               VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?,?,?, ?,?,?, ?,?,?,?, ?,?)""",
+            (
+                trade_date, item["code"], item["name"], item["board"],
+                item["open"], item["close"], item["high"], item["low"], item["prev_close"],
+                item["change_pct"], item["change"], item["volume"], item["amount"],
+                item["turnover_rate"], item["volume_ratio"], item["amplitude"],
+                item["pe_ttm"], item["pe_static"], item["pb"],
+                item["total_market_cap"], item["circulating_market_cap"],
+                item["main_net_inflow"], item["main_net_inflow_pct"],
+                item["super_large_net"], item["large_net"], item["medium_net"], item["small_net"],
+                now,
+            ),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception("Failed to insert single stock daily record")
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Source 1: East Money push2 (primary)
 # ---------------------------------------------------------------------------
@@ -245,6 +349,16 @@ def snapshot_stock_daily(trade_date: str | None = None, trigger: str = "manual")
         conn.close()
 
     logger.info("Stock daily snapshot for %s: %d items", trade_date, len(items))
+
+    # Process pending stock_analysis tasks waiting for data
+    try:
+        from app.services.stock_analysis import process_waiting_stock_analysis
+        result = process_waiting_stock_analysis(trade_date)
+        if result.get("total"):
+            logger.info("Processed waiting stock_analysis: %s", result)
+    except Exception:
+        logger.warning("Failed to process waiting stock_analysis", exc_info=True)
+
     return {"trade_date": trade_date, "item_count": len(items), "success": True, "message": "ok"}
 
 

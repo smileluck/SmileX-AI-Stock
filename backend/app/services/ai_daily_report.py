@@ -210,7 +210,7 @@ def generate_ai_daily_report(trade_date: str | None = None) -> dict:
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ]
-        report_text = llm.analysis_chat(messages)
+        report_text = llm.function_chat("daily_report", messages)
 
         if existing:
             conn.execute(

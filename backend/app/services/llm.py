@@ -62,6 +62,10 @@ def score_news(messages: list[dict], **kwargs) -> str:
     return chat(messages, model=_resolve_model("news_scorer"), **kwargs)
 
 
+def function_chat(function_key: str, messages: list[dict], **kwargs) -> str:
+    return chat(messages, model=_resolve_model(function_key), **kwargs)
+
+
 def test_connection() -> dict:
     client = _get_client()
     try:

@@ -46,6 +46,10 @@ def stock_analysis_detail(analysis_id: int):
 def trigger_stock_analysis(request: GenerateStockAnalysisRequest):
     try:
         result = generate_stock_analysis(request.code, request.trade_date)
+        if result.get("status") == "waiting_data":
+            return GenerateStockAnalysisResponse(
+                success=True, message="数据采集中，请稍后刷新查看", data=result
+            )
         return GenerateStockAnalysisResponse(success=True, message="个股分析生成成功", data=result)
     except Exception as e:
         logger.error("生成个股分析失败: %s", e, exc_info=True)

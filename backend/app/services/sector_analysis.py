@@ -348,7 +348,7 @@ def _generate_single_analysis(trade_date: str, sector_type: str) -> dict:
         ]
 
         try:
-            response_text = llm.analysis_chat(messages)
+            response_text = llm.function_chat("sector_analysis", messages)
         except Exception as e:
             logger.error("板块分析LLM调用失败: %s", e, exc_info=True)
             raise RuntimeError(f"{label}分析生成失败：LLM调用异常（{type(e).__name__}: {e}）") from e

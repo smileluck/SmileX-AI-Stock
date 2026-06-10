@@ -266,7 +266,7 @@ def generate_limit_up_analysis(trade_date: str | None = None, phase: str = "clos
     ]
 
     try:
-        response = llm.analysis_chat(messages)
+        response = llm.function_chat("limit_up_analysis", messages)
     except Exception:
         logger.exception("LLM call failed for limit-up analysis")
         return {"trade_date": trade_date, "items": [], "total": 0, "status": "llm_error"}

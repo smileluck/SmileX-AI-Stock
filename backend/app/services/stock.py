@@ -1473,7 +1473,7 @@ def generate_recommendations(trade_date: str | None = None, phase: str = "aftern
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": context},
     ]
-    response = llm.analysis_chat(messages)
+    response = llm.function_chat("stock_recommendation", messages)
     recs = _parse_recommendation_json(response)
 
     if not recs:

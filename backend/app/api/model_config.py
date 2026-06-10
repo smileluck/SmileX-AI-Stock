@@ -16,6 +16,8 @@ AI_FUNCTIONS = [
     {"key": "sector_analysis", "label": "板块分析", "description": "板块深度分析报告"},
     {"key": "daily_report", "label": "AI收盘报告", "description": "每日综合收盘分析"},
     {"key": "stock_recommendation", "label": "AI个股推荐", "description": "个股投资推荐"},
+    {"key": "stock_analysis", "label": "个股分析", "description": "个股AI深度分析"},
+    {"key": "limit_up_analysis", "label": "涨停分析", "description": "涨停/炸板AI分析"},
 ]
 
 _ENV_DEFAULTS = {
@@ -25,6 +27,8 @@ _ENV_DEFAULTS = {
     "sector_analysis": MODEL_ANALYSIS,
     "daily_report": MODEL_ANALYSIS,
     "stock_recommendation": MODEL_ANALYSIS,
+    "stock_analysis": MODEL_ANALYSIS,
+    "limit_up_analysis": MODEL_ANALYSIS,
 }
 
 
