@@ -363,6 +363,42 @@ class GenerateRecommendationRequest(BaseModel):
     phase: str = "afternoon"
 
 
+# --- Stock AI Analysis ---
+
+class StockAnalysisItem(BaseModel):
+    id: int
+    trade_date: str
+    code: str
+    name: str
+    board: str = ""
+    analysis_text: str = ""
+    prediction_text: str = ""
+    prediction_summary: dict = {}
+    stock_data: dict = {}
+    context_data: dict = {}
+    recent_news: list[dict] = []
+    model_used: str = ""
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class StockAnalysisResponse(BaseModel):
+    items: list[StockAnalysisItem]
+    total: int
+
+
+class GenerateStockAnalysisRequest(BaseModel):
+    code: str
+    trade_date: str | None = None
+
+
+class GenerateStockAnalysisResponse(BaseModel):
+    success: bool
+    message: str
+    data: StockAnalysisItem | None = None
+
+
 # --- Sector AI Analysis ---
 
 class SectorAnalysisItem(BaseModel):

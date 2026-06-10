@@ -209,6 +209,7 @@ CREATE TABLE IF NOT EXISTS limit_up_analysis (
     sector                TEXT DEFAULT '',
     board                 TEXT DEFAULT '',
     stock_type            TEXT NOT NULL DEFAULT 'limit_up',
+    phase                 TEXT NOT NULL DEFAULT 'close',
     first_limit_up_time   TEXT,
     last_limit_up_time    TEXT,
     limit_up_amount       REAL,
@@ -261,6 +262,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sd_date_code ON stock_daily(trade_date, co
 CREATE INDEX IF NOT EXISTS idx_sd_date ON stock_daily(trade_date);
 CREATE INDEX IF NOT EXISTS idx_sd_board ON stock_daily(board);
 CREATE INDEX IF NOT EXISTS idx_sd_code ON stock_daily(code);
+
+CREATE TABLE IF NOT EXISTS stock_analysis (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date          TEXT NOT NULL,
+    code                TEXT NOT NULL,
+    name                TEXT NOT NULL DEFAULT '',
+    board               TEXT NOT NULL DEFAULT '',
+    analysis_text       TEXT NOT NULL DEFAULT '',
+    prediction_text     TEXT NOT NULL DEFAULT '',
+    prediction_summary  TEXT NOT NULL DEFAULT '{}',
+    stock_data          TEXT NOT NULL DEFAULT '{}',
+    context_data        TEXT NOT NULL DEFAULT '{}',
+    recent_news         TEXT NOT NULL DEFAULT '[]',
+    model_used          TEXT NOT NULL DEFAULT '',
+    status              TEXT NOT NULL DEFAULT 'pending',
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sa_code ON stock_analysis(code);
+CREATE INDEX IF NOT EXISTS idx_sa_trade_date ON stock_analysis(trade_date);
+CREATE INDEX IF NOT EXISTS idx_sa_created_at ON stock_analysis(created_at);
+CREATE INDEX IF NOT EXISTS idx_sa_code_date ON stock_analysis(code, trade_date);
 """
 
 

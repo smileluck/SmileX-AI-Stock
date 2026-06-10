@@ -322,22 +322,19 @@ def _get_latest_snapshot(sector_type: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _get_industry_overview() -> list[dict]:
-    # THS primary
-    data = _fetch_ths_industry_overview()
-    if data:
-        logger.info("Industry overview from THS (%d items)", len(data))
-        return data
-
-    # East Money fallback
     raw = _fetch_eastmoney(INDUSTRY_FS, _SECTOR_FIELDS)
     if raw:
         logger.info("Industry overview from East Money (%d items)", len(raw))
         return [_parse_em_overview(i) for i in raw]
 
-    # DB fallback
     data = _get_latest_snapshot("industry")
     if data:
         logger.info("Industry overview from DB snapshot (%d items)", len(data))
+        return data
+
+    data = _fetch_ths_industry_overview()
+    if data:
+        logger.info("Industry overview from THS (%d items)", len(data))
     return data
 
 
@@ -356,54 +353,46 @@ def _get_concept_overview() -> list[dict]:
 
 
 def _get_industry_capital_flow() -> list[dict]:
-    # THS primary
-    data = _fetch_ths_industry_capital_flow()
-    if data:
-        logger.info("Industry capital flow from THS (%d items)", len(data))
-        return data
-
-    # East Money fallback
     raw = _fetch_eastmoney(INDUSTRY_FS, _CAPITAL_FIELDS)
     if raw:
         logger.info("Industry capital flow from East Money (%d items)", len(raw))
         return [_parse_em_capital_flow(i) for i in raw]
 
-    # Sina fallback
     data = _fetch_sina_capital_flow(0)
     if data:
         logger.info("Industry capital flow from Sina (%d items)", len(data))
         return data
 
-    # DB fallback
     data = _get_latest_snapshot("industry")
     if data:
         logger.info("Industry capital flow from DB snapshot (%d items)", len(data))
+        return data
+
+    data = _fetch_ths_industry_capital_flow()
+    if data:
+        logger.info("Industry capital flow from THS (%d items)", len(data))
     return data
 
 
 def _get_concept_capital_flow() -> list[dict]:
-    # THS primary
-    data = _fetch_ths_concept_capital_flow()
-    if data:
-        logger.info("Concept capital flow from THS (%d items)", len(data))
-        return data
-
-    # East Money fallback
     raw = _fetch_eastmoney(CONCEPT_FS, _CAPITAL_FIELDS)
     if raw:
         logger.info("Concept capital flow from East Money (%d items)", len(raw))
         return [_parse_em_capital_flow(i) for i in raw]
 
-    # Sina fallback
     data = _fetch_sina_capital_flow(1)
     if data:
         logger.info("Concept capital flow from Sina (%d items)", len(data))
         return data
 
-    # DB fallback
     data = _get_latest_snapshot("concept")
     if data:
         logger.info("Concept capital flow from DB snapshot (%d items)", len(data))
+        return data
+
+    data = _fetch_ths_concept_capital_flow()
+    if data:
+        logger.info("Concept capital flow from THS (%d items)", len(data))
     return data
 
 

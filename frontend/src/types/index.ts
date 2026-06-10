@@ -454,6 +454,48 @@ export interface GenerateRecommendationResponse {
   total: number;
 }
 
+// --- Stock AI Analysis ---
+
+export interface StockAnalysisPredictionSummary {
+  direction?: "up" | "down" | "flat" | string;
+  confidence?: number;
+  suggested_action?: "watch" | "buy" | "hold" | "avoid" | string;
+  target_price?: number | null;
+  support_price?: number | null;
+  resistance_price?: number | null;
+  risk_level?: "low" | "medium" | "high" | string;
+  key_factors?: string[];
+}
+
+export interface StockAnalysisItem {
+  id: number;
+  trade_date: string;
+  code: string;
+  name: string;
+  board: string;
+  analysis_text: string;
+  prediction_text: string;
+  prediction_summary: StockAnalysisPredictionSummary;
+  stock_data: Record<string, unknown>;
+  context_data: Record<string, unknown>;
+  recent_news: Record<string, unknown>[];
+  model_used: string;
+  status: "pending" | "completed" | "failed" | string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StockAnalysisResponse {
+  items: StockAnalysisItem[];
+  total: number;
+}
+
+export interface GenerateStockAnalysisResponse {
+  success: boolean;
+  message: string;
+  data: StockAnalysisItem | null;
+}
+
 // --- Sector AI Analysis ---
 
 export interface SectorPredictionItem {

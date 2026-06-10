@@ -16,6 +16,7 @@ from app.api.model_config import router as model_config_router
 from app.api.strategy import router as strategy_router
 from app.api.limit_up_analysis import router as limit_up_analysis_router
 from app.api.stock_daily import router as stock_daily_router
+from app.api.stock_analysis import router as stock_analysis_router
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
@@ -157,3 +158,4 @@ app.include_router(model_config_router, prefix="/api/v1")
 app.include_router(strategy_router, prefix="/api/v1")
 app.include_router(limit_up_analysis_router, prefix="/api/v1")
 app.include_router(stock_daily_router, prefix="/api/v1")
+app.include_router(stock_analysis_router, prefix="/api/v1")

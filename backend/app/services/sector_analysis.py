@@ -381,10 +381,10 @@ def _generate_single_analysis(trade_date: str, sector_type: str) -> dict:
                 """INSERT INTO sector_analysis
                     (trade_date, sector_type, analysis_text, prediction_text, prediction_summary,
                      scored_news, trend_data, model_used, status, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,'analyzed',?,?)""",
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (trade_date, sector_type, analysis_part, prediction_part,
                  prediction_summary_json, scored_news_json, trend_data_json,
-                 llm.get_model_for_function("sector_analysis"), now_str, now_str),
+                 llm.get_model_for_function("sector_analysis"), 'analyzed', now_str, now_str),
             )
         conn.commit()
 

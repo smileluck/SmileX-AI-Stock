@@ -35,6 +35,7 @@ const menuItems = [
     children: [
       { key: "/analysis/market", icon: <FundOutlined />, label: "大盘分析" },
       { key: "/analysis/sector", icon: <PieChartOutlined />, label: "板块分析" },
+      { key: "/analysis/stock-analysis", icon: <StockOutlined />, label: "个股分析" },
       { key: "/analysis/stock-recommendation", icon: <StockOutlined />, label: "个股推荐" },
       { key: "/analysis/limit-up", icon: <ThunderboltOutlined />, label: "涨停分析" },
     ],
