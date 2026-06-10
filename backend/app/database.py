@@ -331,11 +331,20 @@ _MIGRATIONS = [
 
 def init_db():
     conn = get_connection()
+    # 清理可能因历史迁移残留的重复数据，防止唯一索引创建失败
+    try:
+        conn.execute(
+            "DELETE FROM sector_analysis WHERE id NOT IN ("
+            "SELECT MAX(id) FROM sector_analysis GROUP BY trade_date, sector_type"
+            ")"
+        )
+    except sqlite3.OperationalError:
+        pass
     conn.executescript(_SCHEMA)
     for sql in _MIGRATIONS:
         try:
             conn.execute(sql)
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, sqlite3.IntegrityError):
             pass
     conn.commit()
     conn.close()

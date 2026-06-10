@@ -51,17 +51,8 @@ def _round2(val) -> float | None:
 # Limit Up (涨停)
 # ---------------------------------------------------------------------------
 
-def fetch_limit_up_stocks(date: str) -> list[dict]:
-    """Fetch limit-up stock pool from akshare. date format: YYYY-MM-DD."""
-    ak_date = date.replace("-", "")
-    try:
-        df = ak.stock_zt_pool_em(date=ak_date)
-        if df is None or df.empty:
-            return []
-    except Exception:
-        logger.warning("akshare stock_zt_pool_em failed for %s", date, exc_info=True)
-        return []
-
+def _parse_zt_df(df) -> list[dict]:
+    """Parse akshare zt-pool DataFrame into standard item list."""
     items = []
     for _, row in df.iterrows():
         code = str(row.get("代码", ""))
@@ -83,6 +74,78 @@ def fetch_limit_up_stocks(date: str) -> list[dict]:
             "board": _classify_board(code),
         })
     return items
+
+
+def _fetch_zt_pool_from_em(date: str) -> list[dict]:
+    """Fallback: fetch limit-up stocks via East Money clist API."""
+    session = requests.Session()
+    retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[502, 503, 504])
+    session.mount("http://", HTTPAdapter(max_retries=retry))
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    try:
+        r = session.get(
+            "http://push2.eastmoney.com/api/qt/clist/get",
+            params={
+                "pn": 1, "pz": 500, "po": 1, "np": 1,
+                "fltt": 2, "invt": 2, "fid": "f3",
+                "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+                "fields": "f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21,f23,f62,f115,f184,f66,f72,f78,f84",
+            },
+            timeout=20,
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"},
+        )
+        r.raise_for_status()
+        data = r.json()
+        diff = (data.get("data") or {}).get("diff") or []
+        items = []
+        for item in diff:
+            change_pct = _round2(_parse_float(item.get("f3")))
+            if change_pct is not None and change_pct >= 9.9:
+                code = str(item.get("f12", ""))
+                items.append({
+                    "code": code,
+                    "name": str(item.get("f14", "")),
+                    "price": _parse_float(item.get("f2")),
+                    "change_pct": change_pct,
+                    "limit_up_amount": None,
+                    "turnover_rate": _round2(_parse_float(item.get("f8"))),
+                    "volume": _parse_float(item.get("f5")),
+                    "amount": _parse_float(item.get("f6")),
+                    "amplitude": _round2(_parse_float(item.get("f7"))),
+                    "first_limit_up_time": None,
+                    "last_limit_up_time": None,
+                    "limit_up_times": 1,
+                    "reason": "",
+                    "sector": "",
+                    "board": _classify_board(code),
+                })
+        logger.info("East Money fallback fetched %d limit-up stocks", len(items))
+        return items
+    except Exception:
+        logger.warning("East Money fallback fetch limit-up failed", exc_info=True)
+        return []
+
+
+def fetch_limit_up_stocks(date: str) -> list[dict]:
+    """Fetch limit-up stock pool from akshare with fallback. date format: YYYY-MM-DD."""
+    ak_date = date.replace("-", "")
+    try:
+        df = ak.stock_zt_pool_em(date=ak_date)
+        if df is not None and not df.empty:
+            return _parse_zt_df(df)
+    except Exception:
+        logger.warning("akshare stock_zt_pool_em failed for %s, trying fallback", date, exc_info=True)
+
+    # Fallback 1: akshare sub-new pool (also contains limit-up stocks)
+    try:
+        df = ak.stock_zt_pool_sub_new_em(date=ak_date)
+        if df is not None and not df.empty:
+            return _parse_zt_df(df)
+    except Exception:
+        logger.warning("akshare stock_zt_pool_sub_new_em failed for %s", date, exc_info=True)
+
+    # Fallback 2: East Money clist API
+    return _fetch_zt_pool_from_em(date)
 
 
 def snapshot_limit_up_data(trade_date: str | None = None, trigger: str = "manual") -> dict:
@@ -784,8 +847,56 @@ def _preselect_morning_candidates(trade_date: str) -> list[dict]:
     return list(candidates.values())[:20]
 
 
+def _fetch_one_stock_auction_sina(code: str) -> dict | None:
+    """Fallback: fetch basic auction data from Sina HQ API."""
+    sina_code = _code_to_sina(code)
+    try:
+        r = requests.get(
+            f"https://hq.sinajs.cn/list={sina_code}",
+            headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+            timeout=5,
+        )
+        r.raise_for_status()
+        m = _SINA_HQ_PATTERN.match(r.text.strip())
+        if not m:
+            return None
+        parts = m.group(2).split(",")
+        if len(parts) < 10:
+            return None
+        prev_close = _parse_float(parts[2])
+        current = _parse_float(parts[3])
+        open_price = _parse_float(parts[1])
+        volume = _parse_float(parts[8])
+        amount = _parse_float(parts[9])
+        change_pct = _round2(((current or 0) - (prev_close or 0)) / prev_close * 100) if prev_close else None
+        signal_tags: list[str] = []
+        if current and prev_close and current >= prev_close * 1.095:
+            signal_tags.append("竞价涨停")
+        return {
+            "code": code,
+            "current": current,
+            "prev_close": prev_close,
+            "change_pct": change_pct,
+            "volume": volume,
+            "amount": amount,
+            "volume_ratio": None,
+            "turnover": None,
+            "limit_up": None,
+            "limit_down": None,
+            "total_buy_vol": 0,
+            "total_sell_vol": 0,
+            "buy_sell_ratio": None,
+            "order_ratio": None,
+            "is_limit_up": bool(current and prev_close and current >= prev_close * 1.095),
+            "signal_tags": signal_tags,
+        }
+    except Exception:
+        logger.debug("Sina fallback auction fetch failed: %s", code, exc_info=True)
+        return None
+
+
 def _fetch_one_stock_auction(code: str) -> dict | None:
-    """Fetch auction order book data for a single stock from East Money push2 API."""
+    """Fetch auction order book data for a single stock from East Money push2 API, fallback to Sina."""
     secid = _code_to_secid(code)
     try:
         r = requests.get(
@@ -807,8 +918,8 @@ def _fetch_one_stock_auction(code: str) -> dict | None:
         if not data:
             return None
     except Exception:
-        logger.debug("竞价数据获取失败: %s", code, exc_info=True)
-        return None
+        logger.debug("East Money auction fetch failed, trying Sina fallback: %s", code)
+        return _fetch_one_stock_auction_sina(code)
 
     prev_close = _parse_float(data.get("f60"))
     current = _parse_float(data.get("f43"))

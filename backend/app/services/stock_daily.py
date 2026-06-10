@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime
 
 import akshare as ak
@@ -69,8 +70,78 @@ def _code_to_secid(code: str) -> str:
 # Single stock spot fetch (realtime fallback)
 # ---------------------------------------------------------------------------
 
+_SINA_HQ_PATTERN = re.compile(r'var hq_str_((?:s[hz]|bj)\d+)="(.+)"')
+
+
+def _code_to_sina(code: str) -> str:
+    if code.startswith("6"):
+        return f"sh{code}"
+    if code.startswith("8") or code.startswith("4"):
+        return f"bj{code}"
+    return f"sz{code}"
+
+
+def _fetch_one_stock_spot_sina(code: str) -> dict | None:
+    """Fetch single stock spot data from Sina HQ API as fallback."""
+    sina_code = _code_to_sina(code)
+    try:
+        r = requests.get(
+            f"https://hq.sinajs.cn/list={sina_code}",
+            headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        m = _SINA_HQ_PATTERN.match(r.text.strip())
+        if not m:
+            return None
+        parts = m.group(2).split(",")
+        if len(parts) < 10:
+            return None
+        name = parts[0]
+        open_p = _parse_float(parts[1])
+        prev_close = _parse_float(parts[2])
+        close = _parse_float(parts[3])
+        high = _parse_float(parts[4])
+        low = _parse_float(parts[5])
+        volume = _parse_float(parts[8])
+        amount = _parse_float(parts[9])
+        change = _round2(_parse_float(parts[3]) - _parse_float(parts[2])) if close is not None and prev_close is not None else None
+        change_pct = _round2((close - prev_close) / prev_close * 100) if close is not None and prev_close and prev_close > 0 else None
+        return {
+            "code": code,
+            "name": name,
+            "board": _classify_board(code),
+            "close": close,
+            "change_pct": change_pct,
+            "change": change,
+            "volume": volume,
+            "amount": amount,
+            "amplitude": None,
+            "turnover_rate": None,
+            "pe_ttm": None,
+            "volume_ratio": None,
+            "high": high,
+            "low": low,
+            "open": open_p,
+            "prev_close": prev_close,
+            "total_market_cap": None,
+            "circulating_market_cap": None,
+            "pb": None,
+            "main_net_inflow": None,
+            "super_large_net": None,
+            "large_net": None,
+            "medium_net": None,
+            "small_net": None,
+            "pe_static": None,
+            "main_net_inflow_pct": None,
+        }
+    except Exception:
+        logger.warning("Sina single stock fetch failed: %s", code, exc_info=True)
+        return None
+
+
 def _fetch_one_stock_spot(code: str) -> dict | None:
-    """Fetch single stock spot data from East Money push2 API."""
+    """Fetch single stock spot data from East Money push2 API, fallback to Sina."""
     secid = _code_to_secid(code)
     try:
         r = requests.get(
@@ -88,8 +159,8 @@ def _fetch_one_stock_spot(code: str) -> dict | None:
         if not data:
             return None
     except Exception:
-        logger.warning("East Money single stock fetch failed: %s", code, exc_info=True)
-        return None
+        logger.info("East Money single stock fetch failed, trying Sina fallback: %s", code)
+        return _fetch_one_stock_spot_sina(code)
 
     code = str(data.get("f12", ""))
     return {

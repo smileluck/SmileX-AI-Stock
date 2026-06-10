@@ -193,20 +193,50 @@ def get_market_overview() -> dict:
     }
 
 
+def _fetch_index_daily_fallback(symbol: str) -> pd.DataFrame | None:
+    """Try multiple sources for index daily data. Returns DataFrame with columns: date, open, close, high, low, volume."""
+    # Source 1: akshare (Sina)
+    try:
+        df = ak.stock_zh_index_daily(symbol=symbol)
+        if df is not None and not df.empty:
+            return df
+    except Exception:
+        logger.debug("stock_zh_index_daily failed for %s", symbol)
+
+    # Source 2: akshare (East Money) – different column names
+    try:
+        raw_symbol = symbol[2:]  # strip sh/sz prefix
+        df = ak.index_zh_a_hist(symbol=raw_symbol, period="daily", start_date="20000101", end_date=datetime.now().strftime("%Y%m%d"))
+        if df is not None and not df.empty:
+            df = df.rename(columns={
+                "日期": "date",
+                "开盘": "open",
+                "收盘": "close",
+                "最高": "high",
+                "最低": "low",
+                "成交量": "volume",
+            })
+            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+            return df[["date", "open", "close", "high", "low", "volume"]]
+    except Exception:
+        logger.debug("index_zh_a_hist failed for %s", symbol)
+
+    return None
+
+
 def get_market_history(days: int = 30) -> dict:
     cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
     cutoff_str = cutoff.strftime("%Y-%m-%d")
     results = []
     for code, name in CN_INDEX_NAMES.items():
-        try:
-            df = ak.stock_zh_index_daily(symbol=code)
-            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
-            df = df[df["date"] >= cutoff_str].sort_values("date")
-            records = df.to_dict("records")
-            if records:
-                results.append({"code": code, "name": name, "records": records})
-        except Exception:
-            logger.warning("Failed to fetch history for %s", code, exc_info=True)
+        df = _fetch_index_daily_fallback(code)
+        if df is None:
+            logger.warning("All index sources failed for %s", code)
+            continue
+        df = df[df["date"] >= cutoff_str].sort_values("date")
+        records = df.to_dict("records")
+        if records:
+            results.append({"code": code, "name": name, "records": records})
     return {
         "indices": results,
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

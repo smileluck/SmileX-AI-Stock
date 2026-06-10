@@ -7,7 +7,7 @@ import akshare as ak
 import pandas as pd
 
 from app.database import get_connection
-from app.services.market import CN_INDEX_NAMES
+from app.services.market import CN_INDEX_NAMES, _fetch_index_daily_fallback
 from app.services import llm
 
 logger = logging.getLogger(__name__)
@@ -195,26 +195,26 @@ def get_today_market_context(date_str: str) -> dict:
     market_date = friday_str or date_str
     cn_data = []
     for code, name in CN_INDEX_NAMES.items():
-        try:
-            df = ak.stock_zh_index_daily(symbol=code)
-            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
-            day = df[df["date"] == market_date]
-            if day.empty:
-                last5 = df.sort_values("date").tail(5)
-                cn_data.append({
-                    "code": code, "name": name,
-                    "note": f"{market_date} 无数据，最近5日: {last5[['date','close','volume']].to_string(index=False)}",
-                })
-            else:
-                row = day.iloc[0]
-                cn_data.append({
-                    "code": code, "name": name,
-                    "open": float(row["open"]), "close": float(row["close"]),
-                    "high": float(row["high"]), "low": float(row["low"]),
-                    "volume": float(row["volume"]),
-                })
-        except Exception:
-            logger.warning("获取 %s 历史数据失败", code, exc_info=True)
+        df = _fetch_index_daily_fallback(code)
+        if df is None:
+            logger.warning("All index sources failed for %s", code)
+            continue
+        df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        day = df[df["date"] == market_date]
+        if day.empty:
+            last5 = df.sort_values("date").tail(5)
+            cn_data.append({
+                "code": code, "name": name,
+                "note": f"{market_date} 无数据，最近5日: {last5[['date','close','volume']].to_string(index=False)}",
+            })
+        else:
+            row = day.iloc[0]
+            cn_data.append({
+                "code": code, "name": name,
+                "open": float(row["open"]), "close": float(row["close"]),
+                "high": float(row["high"]), "low": float(row["low"]),
+                "volume": float(row["volume"]),
+            })
 
     # News: expand date range on weekends (full week: Monday through today)
     recent_news = []
@@ -259,17 +259,16 @@ def get_today_market_context(date_str: str) -> dict:
 
     trend_data = {}
     for code, name in CN_INDEX_NAMES.items():
-        try:
-            df = ak.stock_zh_index_daily(symbol=code)
-            df["date"] = pd.to_datetime(df["date"])
-            df = df[df["date"] < market_date].sort_values("date").tail(5)
-            if not df.empty:
-                trend_data[code] = {
-                    "name": name,
-                    "records": df[["date", "close", "volume"]].to_dict("records"),
-                }
-        except Exception:
-            pass
+        df = _fetch_index_daily_fallback(code)
+        if df is None:
+            continue
+        df["date"] = pd.to_datetime(df["date"])
+        df = df[df["date"] < market_date].sort_values("date").tail(5)
+        if not df.empty:
+            trend_data[code] = {
+                "name": name,
+                "records": df[["date", "close", "volume"]].to_dict("records"),
+            }
 
     return {"cn_data": cn_data, "recent_news": recent_news, "scored_news": scored_news, "trend_data": trend_data, "date": date_str, "is_weekend": is_weekend, "friday": friday_str}
 

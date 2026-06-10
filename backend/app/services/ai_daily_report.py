@@ -2,8 +2,11 @@ import json
 import logging
 from datetime import datetime
 
+import pandas as pd
+
 from app.database import get_connection
 from app.services import llm
+from app.services.market import CN_INDEX_NAMES, _fetch_index_daily_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -60,19 +63,19 @@ def _get_index_data(trade_date: str) -> str:
 
     lines = []
     for code, name in CN_INDEX_NAMES.items():
-        try:
-            df = ak.stock_zh_index_daily(symbol=code)
-            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
-            day = df[df["date"] == trade_date]
-            if not day.empty:
-                r = day.iloc[0]
-                change_pct = ((float(r["close"]) - float(r["open"])) / float(r["open"]) * 100) if float(r["open"]) else 0
-                lines.append(
-                    f"{name}({code}): 开{float(r['open']):.2f} 收{float(r['close']):.2f} "
-                    f"高{float(r['high']):.2f} 低{float(r['low']):.2f} 涨跌幅{change_pct:+.2f}%"
-                )
-        except Exception:
-            logger.warning("获取 %s 数据失败", code, exc_info=True)
+        df = _fetch_index_daily_fallback(code)
+        if df is None:
+            logger.warning("All index sources failed for %s", code)
+            continue
+        df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        day = df[df["date"] == trade_date]
+        if not day.empty:
+            r = day.iloc[0]
+            change_pct = ((float(r["close"]) - float(r["open"])) / float(r["open"]) * 100) if float(r["open"]) else 0
+            lines.append(
+                f"{name}({code}): 开{float(r['open']):.2f} 收{float(r['close']):.2f} "
+                f"高{float(r['high']):.2f} 低{float(r['low']):.2f} 涨跌幅{change_pct:+.2f}%"
+            )
 
     return "=== 指数数据 ===\n" + "\n".join(lines) if lines else "无指数数据"
 

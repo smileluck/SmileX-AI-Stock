@@ -16,35 +16,72 @@ logger = logging.getLogger(__name__)
 # Data Fetching
 # ---------------------------------------------------------------------------
 
+def _fetch_broken_limit_from_db(date: str) -> list[dict]:
+    """Fallback: infer broken limit-up stocks from stock_daily."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT code, name, close, high, prev_close, change_pct, amount, turnover_rate, volume
+            FROM stock_daily
+            WHERE trade_date = ?
+              AND change_pct < 9.9
+              AND prev_close > 0
+              AND high >= prev_close * 1.095
+            ORDER BY change_pct DESC
+            LIMIT 50
+            """,
+            (date,),
+        ).fetchall()
+        return [
+            {
+                "code": r["code"],
+                "name": r["name"],
+                "price": r["close"],
+                "change_pct": r["change_pct"],
+                "limit_up_amount": None,
+                "turnover_rate": r["turnover_rate"],
+                "amount": r["amount"],
+                "first_limit_up_time": None,
+                "last_limit_up_time": None,
+                "limit_up_times": 1,
+                "sector": "",
+                "board": _classify_board(r["code"]),
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
 def fetch_broken_limit_stocks(date: str) -> list[dict]:
-    """Fetch broken limit-up stocks (炸板股) via akshare."""
+    """Fetch broken limit-up stocks (炸板股) via akshare, fallback to DB inference."""
     ak_date = date.replace("-", "")
     try:
         df = ak.stock_zt_pool_zbgc_em(date=ak_date)
-        if df is None or df.empty:
-            return []
+        if df is not None and not df.empty:
+            items = []
+            for _, row in df.iterrows():
+                code = str(row.get("代码", ""))
+                items.append({
+                    "code": code,
+                    "name": str(row.get("名称", "")),
+                    "price": _parse_float(row.get("最新价")),
+                    "change_pct": _round2(_parse_float(row.get("涨跌幅"))),
+                    "limit_up_amount": _parse_float(row.get("封板资金")),
+                    "turnover_rate": _round2(_parse_float(row.get("换手率"))),
+                    "amount": _parse_float(row.get("成交额")),
+                    "first_limit_up_time": str(row.get("首次封板时间", "")) or None,
+                    "last_limit_up_time": str(row.get("最后封板时间", "")) or None,
+                    "limit_up_times": int(_parse_float(row.get("连板数")) or 1),
+                    "sector": str(row.get("所属行业", "")) if row.get("所属行业") else "",
+                    "board": _classify_board(code),
+                })
+            return items
     except Exception:
-        logger.warning("akshare stock_zt_pool_zbgc_em failed for %s", date, exc_info=True)
-        return []
+        logger.warning("akshare stock_zt_pool_zbgc_em failed for %s, trying DB fallback", date, exc_info=True)
 
-    items = []
-    for _, row in df.iterrows():
-        code = str(row.get("代码", ""))
-        items.append({
-            "code": code,
-            "name": str(row.get("名称", "")),
-            "price": _parse_float(row.get("最新价")),
-            "change_pct": _round2(_parse_float(row.get("涨跌幅"))),
-            "limit_up_amount": _parse_float(row.get("封板资金")),
-            "turnover_rate": _round2(_parse_float(row.get("换手率"))),
-            "amount": _parse_float(row.get("成交额")),
-            "first_limit_up_time": str(row.get("首次封板时间", "")) or None,
-            "last_limit_up_time": str(row.get("最后封板时间", "")) or None,
-            "limit_up_times": int(_parse_float(row.get("连板数")) or 1),
-            "sector": str(row.get("所属行业", "")) if row.get("所属行业") else "",
-            "board": _classify_board(code),
-        })
-    return items
+    return _fetch_broken_limit_from_db(date)
 
 
 def snapshot_limit_up_analysis_data(trade_date: str | None = None, trigger: str = "manual", phase: str = "close") -> dict:

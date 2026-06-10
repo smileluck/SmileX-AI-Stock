@@ -161,7 +161,7 @@ def _build_trend_context(trade_date: str, sector_type: str, days: int = 5) -> tu
     lines.append(f"\n--- 近{days}日{label}涨幅 TOP10 ---")
     for s in by_change[:10]:
         lines.append(
-            f"{s['name']}: 均涨{s.get('avg_change_pct', 0):+.2f}% "
+            f"{s['name']}: 均涨{(s.get('avg_change_pct') or 0):+.2f}% "
             f"最佳{s.get('best_change_pct', 0):+.2f}% "
             f"最差{s.get('worst_change_pct', 0):+.2f}% "
             f"交易{s.get('trading_days', 0)}天"
@@ -171,7 +171,7 @@ def _build_trend_context(trade_date: str, sector_type: str, days: int = 5) -> tu
     lines.append(f"\n--- 近{days}日{label}跌幅 TOP10 ---")
     for s in by_change[-10:]:
         lines.append(
-            f"{s['name']}: 均涨{s.get('avg_change_pct', 0):+.2f}% "
+            f"{s['name']}: 均涨{(s.get('avg_change_pct') or 0):+.2f}% "
             f"交易{s.get('trading_days', 0)}天"
         )
         trend_summary["top_losers"].append({"name": s["name"], "avg_change_pct": s.get("avg_change_pct")})
@@ -181,14 +181,14 @@ def _build_trend_context(trade_date: str, sector_type: str, days: int = 5) -> tu
     for s in by_inflow[:5]:
         inflow = s.get("total_main_net_inflow", 0)
         inflow_str = f"{inflow / 1e8:.2f}亿" if inflow else "0"
-        lines.append(f"{s['name']}: 总净流入{inflow_str} 均涨{s.get('avg_change_pct', 0):+.2f}%")
+        lines.append(f"{s['name']}: 总净流入{inflow_str} 均涨{(s.get('avg_change_pct') or 0):+.2f}%")
         trend_summary["top_inflow"].append({"name": s["name"], "total_main_net_inflow": inflow})
 
     lines.append(f"\n--- 近{days}日{label}主力净流出 TOP5 ---")
     for s in by_inflow[-5:]:
         inflow = s.get("total_main_net_inflow", 0)
         inflow_str = f"{inflow / 1e8:.2f}亿" if inflow else "0"
-        lines.append(f"{s['name']}: 总净流出{inflow_str} 均涨{s.get('avg_change_pct', 0):+.2f}%")
+        lines.append(f"{s['name']}: 总净流出{inflow_str} 均涨{(s.get('avg_change_pct') or 0):+.2f}%")
         trend_summary["top_outflow"].append({"name": s["name"], "total_main_net_inflow": inflow})
 
     lines.append("")
