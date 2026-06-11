@@ -44,6 +44,17 @@ export async function fetchRecommendationHistory(
   return data;
 }
 
+export async function refreshRecommendationPrices(
+  tradeDate?: string,
+  phase: string = "morning",
+): Promise<RecommendationListResponse> {
+  const { data } = await client.post("/stock/recommendation/refresh-price", {
+    trade_date: tradeDate || null,
+    phase,
+  });
+  return data;
+}
+
 export async function triggerRecommendationGeneration(
   tradeDate?: string,
   phase: string = "afternoon",

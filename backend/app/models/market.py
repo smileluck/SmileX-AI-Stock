@@ -363,6 +363,11 @@ class GenerateRecommendationRequest(BaseModel):
     phase: str = "afternoon"
 
 
+class RefreshRecommendationPriceRequest(BaseModel):
+    trade_date: str | None = None
+    phase: str = "morning"
+
+
 # --- Stock AI Analysis ---
 
 class StockAnalysisItem(BaseModel):

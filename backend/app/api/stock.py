@@ -8,6 +8,7 @@ from app.models.market import (
     RecommendationListResponse,
     GenerateRecommendationResponse,
     GenerateRecommendationRequest,
+    RefreshRecommendationPriceRequest,
 )
 from app.services.stock import (
     get_stock_overview,
@@ -16,6 +17,7 @@ from app.services.stock import (
     get_recommendations_by_date,
     get_recommendation_history,
     generate_recommendations,
+    update_recommendation_performance,
 )
 
 router = APIRouter(tags=["stock"])
@@ -53,6 +55,15 @@ def stock_recommendations(
 def recommendation_history(limit: int = Query(default=50, le=200), offset: int = Query(default=0, ge=0)):
     items, total = get_recommendation_history(limit, offset)
     return RecommendationListResponse(items=items, total=total)
+
+
+@router.post("/stock/recommendation/refresh-price", response_model=RecommendationListResponse)
+def refresh_recommendation_prices(request: RefreshRecommendationPriceRequest | None = None):
+    trade_date = (request.trade_date if request else None) or datetime.now().strftime("%Y-%m-%d")
+    phase = (request.phase if request else None) or "morning"
+    update_recommendation_performance(trade_date, phase=phase)
+    items = get_recommendations_by_date(trade_date, phase)
+    return RecommendationListResponse(items=items, total=len(items))
 
 
 @router.post("/stock/recommendation/generate", response_model=GenerateRecommendationResponse)

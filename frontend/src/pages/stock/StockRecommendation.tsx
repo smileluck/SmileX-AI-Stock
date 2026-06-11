@@ -15,7 +15,7 @@ import {
 } from "antd";
 import { SyncOutlined, BulbOutlined, DownOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { fetchRecommendations, triggerRecommendationGeneration } from "../../api/stock";
+import { fetchRecommendations, refreshRecommendationPrices, triggerRecommendationGeneration } from "../../api/stock";
 import StockLink from "../../components/StockLink";
 import type { RecommendationListResponse, RecommendationItem } from "../../types";
 
@@ -135,6 +135,7 @@ export default function StockRecommendation() {
   const [data, setData] = useState<RecommendationListResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [genLoading, setGenLoading] = useState(false);
+  const [priceLoading, setPriceLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
   const [phase, setPhase] = useState<string>("morning");
@@ -179,6 +180,19 @@ export default function StockRecommendation() {
     setPhase(key);
   };
 
+  const handleRefreshPrices = async () => {
+    setPriceLoading(true);
+    try {
+      const res = await refreshRecommendationPrices(date, phase);
+      setData(res);
+      message.success(`已刷新 ${res.total} 条实时行情`);
+    } catch {
+      message.error("刷新实时行情失败");
+    } finally {
+      setPriceLoading(false);
+    }
+  };
+
   const items = data?.items ?? [];
   const avgConf = items.length ? (items.reduce((s, i) => s + i.confidence, 0) / items.length * 100).toFixed(0) : "--";
   const riskDist = items.reduce<Record<string, number>>((acc, i) => { acc[i.risk_level] = (acc[i.risk_level] || 0) + 1; return acc; }, {});
@@ -205,6 +219,9 @@ export default function StockRecommendation() {
             size="small"
           />
           <Button icon={<SyncOutlined spin={loading} />} onClick={() => loadData()} size="small">刷新</Button>
+          <Button icon={<SyncOutlined spin={priceLoading} />} loading={priceLoading} onClick={handleRefreshPrices} size="small">
+            刷新行情/实时收益
+          </Button>
           <Dropdown
             menu={{ items: genMenuItems, onClick: ({ key }) => handleGenerate(key) }}
           >

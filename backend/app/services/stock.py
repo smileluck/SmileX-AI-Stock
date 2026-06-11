@@ -1742,6 +1742,34 @@ def update_morning_performance(trade_date: str | None = None) -> dict:
     return update_recommendation_performance(trade_date, phase="morning")
 
 
+def _fetch_stock_prices_from_sina(codes: list[str]) -> dict[str, dict[str, float | None]]:
+    if not codes:
+        return {}
+
+    sina_codes = ",".join(_code_to_sina(c) for c in codes)
+    r = requests.get(
+        f"https://hq.sinajs.cn/list={sina_codes}",
+        headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+        timeout=10,
+    )
+    r.raise_for_status()
+
+    prices: dict[str, dict[str, float | None]] = {}
+    for line in r.text.strip().split("\n"):
+        m = _SINA_HQ_PATTERN.match(line.strip())
+        if not m:
+            continue
+        parts = m.group(2).split(",")
+        if len(parts) < 4:
+            continue
+        code = m.group(1)[2:]
+        prices[code] = {
+            "current": _parse_float(parts[3]),
+            "prev_close": _parse_float(parts[2]),
+        }
+    return prices
+
+
 def update_recommendation_performance(trade_date: str | None = None, phase: str = "morning") -> dict:
     """Update actual_return_pct for recommendations of a given phase using live prices."""
     if not trade_date:
@@ -1750,41 +1778,21 @@ def update_recommendation_performance(trade_date: str | None = None, phase: str 
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT id, code FROM stock_recommendation WHERE trade_date = ? AND phase = ? AND status = 'pending'",
+            "SELECT id, code FROM stock_recommendation WHERE trade_date = ? AND phase = ?",
             (trade_date, phase),
         ).fetchall()
     finally:
         conn.close()
 
     if not rows:
-        return {"updated": 0, "trade_date": trade_date}
+        return {"updated": 0, "total": 0, "trade_date": trade_date}
 
-    # Batch fetch prices from Sina
     codes = [r["code"] for r in rows]
-    price_map: dict[str, float | None] = {}
-    prev_close_map: dict[str, float | None] = {}
-
-    sina_codes = ",".join(_code_to_sina(c) for c in codes)
     try:
-        r = requests.get(
-            f"https://hq.sinajs.cn/list={sina_codes}",
-            headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
-        r.raise_for_status()
-        for line in r.text.strip().split("\n"):
-            m = _SINA_HQ_PATTERN.match(line.strip())
-            if m:
-                parts = m.group(2).split(",")
-                if len(parts) >= 4:
-                    code = m.group(1)[2:]
-                    prev_close = _parse_float(parts[2])
-                    current = _parse_float(parts[3])
-                    prev_close_map[code] = prev_close
-                    price_map[code] = current
+        price_map = _fetch_stock_prices_from_sina(codes)
     except Exception:
-        logger.warning("Failed to fetch prices for morning performance update", exc_info=True)
-        return {"updated": 0, "trade_date": trade_date}
+        logger.warning("Failed to fetch prices for recommendation performance update", exc_info=True)
+        return {"updated": 0, "total": len(rows), "trade_date": trade_date}
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     updated = 0
@@ -1792,19 +1800,22 @@ def update_recommendation_performance(trade_date: str | None = None, phase: str 
     try:
         for row in rows:
             code = row["code"]
-            current = price_map.get(code)
-            prev_close = prev_close_map.get(code)
+            price = price_map.get(code)
+            if not price:
+                continue
+            current = price.get("current")
+            prev_close = price.get("prev_close")
             if current is not None and prev_close and prev_close > 0:
-                ret_pct = round((current - prev_close) / prev_close * 100, 2)
+                ret_pct = _round2((current - prev_close) / prev_close * 100)
                 conn.execute(
-                    "UPDATE stock_recommendation SET actual_return_pct = ?, status = 'completed', updated_at = ? WHERE id = ?",
-                    (ret_pct, now, row["id"]),
+                    "UPDATE stock_recommendation SET current_price = ?, actual_return_pct = ?, updated_at = ? WHERE id = ?",
+                    (current, ret_pct, now, row["id"]),
                 )
                 updated += 1
         conn.commit()
     except Exception:
         conn.rollback()
-        logger.exception("Failed to update morning performance")
+        logger.exception("Failed to update recommendation performance")
     finally:
         conn.close()
 
