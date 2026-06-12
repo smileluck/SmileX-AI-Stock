@@ -31,7 +31,7 @@ litellm --config llm_proxy/config.yaml --port 4000
 cd backend
 cp .env.example .env   # 按需修改配置
 pip install -e .
-uvicorn app.main:app --port 8001 --reload
+uvicorn app.main:app --port 8801 --reload
 ```
 
 ### 3. 前端
@@ -51,7 +51,7 @@ npm run dev
 后端启动后，工作日 15:20 自动执行板块数据快照（行业 + 概念），将实时行情和资金流向写入 SQLite。也可手动触发：
 
 ```bash
-curl -X POST http://localhost:8001/api/v1/market/sector/snapshot
+curl -X POST http://localhost:8801/api/v1/market/sector/snapshot
 ```
 
 ### 历史数据回填

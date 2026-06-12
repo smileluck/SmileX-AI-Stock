@@ -4,6 +4,8 @@ from datetime import datetime
 import akshare as ak
 import pandas as pd
 import requests
+
+from app.database import get_connection
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -191,6 +193,66 @@ def get_market_overview() -> dict:
         "international": _get_global_indices(),
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+
+
+def snapshot_market_data(trade_date: str | None = None, trigger: str = "manual") -> dict:
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    overview = get_market_overview()
+    rows = []
+    for market_type, items in (("cn_main", overview["cn_main"]), ("international", overview["international"])):
+        for item in items:
+            if not item.get("code"):
+                continue
+            rows.append((
+                trade_date, market_type, item["code"], item.get("name", ""),
+                item.get("price"), item.get("change"), item.get("change_pct"),
+                item.get("volume"), item.get("amount"), item.get("high"), item.get("low"),
+                item.get("open"), item.get("prev_close"), item.get("amplitude"),
+                item.get("update_time"), now, now,
+            ))
+
+    result = {"trade_date": trade_date, "cn_main_count": 0, "international_count": 0, "success": True, "message": "ok"}
+    conn = get_connection()
+    try:
+        conn.executemany(
+            """INSERT INTO market_snapshot
+               (trade_date, market_type, code, name, price, change, change_pct, volume, amount,
+                high, low, open, prev_close, amplitude, update_time, created_at, updated_at)
+               VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?)
+               ON CONFLICT(trade_date, market_type, code) DO UPDATE SET
+                   name=excluded.name,
+                   price=excluded.price,
+                   change=excluded.change,
+                   change_pct=excluded.change_pct,
+                   volume=excluded.volume,
+                   amount=excluded.amount,
+                   high=excluded.high,
+                   low=excluded.low,
+                   open=excluded.open,
+                   prev_close=excluded.prev_close,
+                   amplitude=excluded.amplitude,
+                   update_time=excluded.update_time,
+                   updated_at=excluded.updated_at""",
+            rows,
+        )
+        result["cn_main_count"] = sum(1 for r in rows if r[1] == "cn_main")
+        result["international_count"] = sum(1 for r in rows if r[1] == "international")
+        conn.execute(
+            "INSERT INTO sync_log (job_id, trigger, results, total, status, duration, created_at) VALUES (?,?,?,?,?,?,?)",
+            ("market_snapshot", trigger, "[]", len(rows), "ok", 0, now),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception("Failed to snapshot market data")
+        result["success"] = False
+        result["message"] = "大盘快照失败，请查看日志"
+    finally:
+        conn.close()
+    return result
 
 
 def _fetch_index_daily_fallback(symbol: str) -> pd.DataFrame | None:

@@ -28,12 +28,14 @@ def query_stock_daily(
     keyword: str | None = Query(default=None, description="代码或名称搜索"),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    watchlist_first: bool = Query(default=True, description="自选股置顶"),
 ):
     if not trade_date:
         trade_date = datetime.now().strftime("%Y-%m-%d")
     items, total = get_stock_daily(
         trade_date, sort_by=sort_by, sort_order=sort_order,
         board=board, keyword=keyword, limit=limit, offset=offset,
+        watchlist_first=watchlist_first,
     )
     return {"trade_date": trade_date, "items": items, "total": total}
 

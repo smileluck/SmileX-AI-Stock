@@ -4,6 +4,8 @@ import type {
   LimitUpResponse,
   RecommendationListResponse,
   GenerateRecommendationResponse,
+  StockDailyListResponse,
+  WatchlistStockResponse,
 } from "../types";
 
 export async function fetchStockOverview(): Promise<StockOverviewResponse> {
@@ -21,6 +23,52 @@ export async function fetchLimitUp(tradeDate?: string): Promise<LimitUpResponse>
 export async function triggerLimitUpSnapshot(): Promise<{ success: boolean; message: string }> {
   const { data } = await client.post("/stock/limit-up/snapshot");
   return data;
+}
+
+export interface StockDailyListParams {
+  tradeDate?: string;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
+  board?: string;
+  keyword?: string;
+  limit?: number;
+  offset?: number;
+  watchlistFirst?: boolean;
+}
+
+export async function fetchStockDailyList(params: StockDailyListParams = {}): Promise<StockDailyListResponse> {
+  const { data } = await client.get("/stock-daily/list", {
+    params: {
+      trade_date: params.tradeDate,
+      sort_by: params.sortBy,
+      sort_order: params.sortOrder,
+      board: params.board,
+      keyword: params.keyword,
+      limit: params.limit,
+      offset: params.offset,
+      watchlist_first: params.watchlistFirst,
+    },
+  });
+  return data;
+}
+
+export async function triggerStockDailySnapshot(): Promise<{ success: boolean; message: string; item_count: number; trade_date: string }> {
+  return (await client.post("/stock-daily/snapshot")).data;
+}
+
+export async function fetchWatchlistStocks(tradeDate?: string): Promise<WatchlistStockResponse> {
+  const { data } = await client.get("/watchlist/stocks", {
+    params: tradeDate ? { trade_date: tradeDate } : {},
+  });
+  return data;
+}
+
+export async function addWatchlistStock(payload: { code: string; name?: string; note?: string }) {
+  return (await client.post("/watchlist/stocks", payload)).data;
+}
+
+export async function deleteWatchlistStock(code: string): Promise<{ success: boolean }> {
+  return (await client.delete(`/watchlist/stocks/${code}`)).data;
 }
 
 export async function fetchRecommendations(

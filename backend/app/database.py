@@ -28,6 +28,29 @@ CREATE TABLE IF NOT EXISTS sync_log (
 CREATE INDEX IF NOT EXISTS idx_sync_log_job ON sync_log(job_id);
 CREATE INDEX IF NOT EXISTS idx_sync_log_created ON sync_log(created_at);
 
+CREATE TABLE IF NOT EXISTS market_snapshot (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date   TEXT NOT NULL,
+    market_type  TEXT NOT NULL,
+    code         TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    price        REAL,
+    change       REAL,
+    change_pct   REAL,
+    volume       REAL,
+    amount       REAL,
+    high         REAL,
+    low          REAL,
+    open         REAL,
+    prev_close   REAL,
+    amplitude    REAL,
+    update_time  TEXT,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ms_date_type_code ON market_snapshot(trade_date, market_type, code);
+CREATE INDEX IF NOT EXISTS idx_ms_date ON market_snapshot(trade_date);
+
 CREATE TABLE IF NOT EXISTS market_analysis (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     trade_date          TEXT UNIQUE NOT NULL,
@@ -262,6 +285,52 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sd_date_code ON stock_daily(trade_date, co
 CREATE INDEX IF NOT EXISTS idx_sd_date ON stock_daily(trade_date);
 CREATE INDEX IF NOT EXISTS idx_sd_board ON stock_daily(board);
 CREATE INDEX IF NOT EXISTS idx_sd_code ON stock_daily(code);
+
+CREATE TABLE IF NOT EXISTS watchlist_stock (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    code         TEXT UNIQUE NOT NULL,
+    name         TEXT NOT NULL DEFAULT '',
+    note         TEXT NOT NULL DEFAULT '',
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_code ON watchlist_stock(code);
+CREATE INDEX IF NOT EXISTS idx_watchlist_sort ON watchlist_stock(sort_order);
+
+CREATE TABLE IF NOT EXISTS stock_fundamental (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    code            TEXT NOT NULL,
+    name            TEXT NOT NULL DEFAULT '',
+    report_date     TEXT NOT NULL,
+    roe             REAL,
+    eps             REAL,
+    revenue_growth  REAL,
+    profit_growth   REAL,
+    gross_margin    REAL,
+    net_margin      REAL,
+    update_time     TEXT,
+    created_at      TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sf_code_report ON stock_fundamental(code, report_date);
+CREATE INDEX IF NOT EXISTS idx_sf_code ON stock_fundamental(code);
+
+CREATE TABLE IF NOT EXISTS stock_capital_detail (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date            TEXT NOT NULL,
+    code                  TEXT NOT NULL,
+    name                  TEXT NOT NULL DEFAULT '',
+    north_hold_qty        REAL,
+    north_hold_market_cap REAL,
+    north_hold_pct        REAL,
+    margin_balance        REAL,
+    margin_buy            REAL,
+    short_sell_volume     REAL,
+    short_balance         REAL,
+    created_at            TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scd_date_code ON stock_capital_detail(trade_date, code);
+CREATE INDEX IF NOT EXISTS idx_scd_code ON stock_capital_detail(code);
 
 CREATE TABLE IF NOT EXISTS stock_analysis (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,

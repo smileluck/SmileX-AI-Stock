@@ -40,7 +40,7 @@
 ```bash
 cd backend
 uv sync
-uv run uvicorn app.main:app --reload --port 8001
+uv run uvicorn app.main:app --reload --port 8801
 ```
 
 ### 前端启动

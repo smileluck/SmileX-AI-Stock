@@ -11,7 +11,7 @@ from app.models.market import (
     SectorDatesResponse,
     SectorSnapshotResponse,
 )
-from app.services.market import get_market_overview, get_market_history
+from app.services.market import get_market_overview, get_market_history, snapshot_market_data
 from app.services.sector import (
     get_sector_overview,
     get_sector_capital_flow,
@@ -33,6 +33,11 @@ def market_overview():
 @router.get("/market/history", response_model=MarketHistoryResponse)
 def market_history(days: int = Query(default=30, le=365)):
     return get_market_history(days)
+
+
+@router.post("/market/snapshot")
+def trigger_market_snapshot():
+    return snapshot_market_data()
 
 
 @router.get("/market/sector/overview", response_model=SectorOverviewResponse)

@@ -57,6 +57,7 @@ const menuItems = [
     label: "个股",
     children: [
       { key: "/stock/overview", icon: <DashboardOutlined />, label: "分析总览" },
+      { key: "/stock/all", icon: <StockOutlined />, label: "所有个股" },
       { key: "/stock/limit-up", icon: <ThunderboltOutlined />, label: "今日涨停" },
       { key: "/stock/history", icon: <HistoryOutlined />, label: "历史推荐" },
     ],

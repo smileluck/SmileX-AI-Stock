@@ -414,6 +414,60 @@ export interface StockOverviewResponse {
   fetch_time: string;
 }
 
+// --- Stock: Daily Snapshot & Watchlist ---
+
+export interface StockDailyItem {
+  id: number | null;
+  trade_date: string;
+  code: string;
+  name: string;
+  board: string;
+  open: number | null;
+  close: number | null;
+  high: number | null;
+  low: number | null;
+  prev_close: number | null;
+  change_pct: number | null;
+  change: number | null;
+  volume: number | null;
+  amount: number | null;
+  turnover_rate: number | null;
+  volume_ratio: number | null;
+  amplitude: number | null;
+  pe_ttm: number | null;
+  pe_static: number | null;
+  pb: number | null;
+  total_market_cap: number | null;
+  circulating_market_cap: number | null;
+  main_net_inflow: number | null;
+  main_net_inflow_pct: number | null;
+  super_large_net: number | null;
+  large_net: number | null;
+  medium_net: number | null;
+  small_net: number | null;
+  created_at: string | null;
+  is_watchlist: boolean | number;
+}
+
+export interface StockDailyListResponse {
+  trade_date: string;
+  items: StockDailyItem[];
+  total: number;
+}
+
+export interface WatchlistStockItem extends StockDailyItem {
+  watchlist_id: number;
+  note: string;
+  sort_order: number;
+  watchlist_created_at: string;
+  watchlist_updated_at: string;
+}
+
+export interface WatchlistStockResponse {
+  items: WatchlistStockItem[];
+  total: number;
+}
+
 // --- Stock: Recommendation ---
 
 export interface RecommendationItem {
@@ -548,7 +602,7 @@ export interface SectorAnalysisResponse {
 export interface GenerateSectorAnalysisResponse {
   success: boolean;
   message: string;
-  data: SectorAnalysisItem | null;
+  data: SectorAnalysisItem | Record<string, SectorAnalysisItem | null> | null;
 }
 
 // --- Limit Up AI Analysis ---

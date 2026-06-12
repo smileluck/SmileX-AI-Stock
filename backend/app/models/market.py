@@ -436,4 +436,4 @@ class GenerateSectorAnalysisRequest(BaseModel):
 class GenerateSectorAnalysisResponse(BaseModel):
     success: bool
     message: str
-    data: SectorAnalysisItem | None = None
+    data: SectorAnalysisItem | dict[str, SectorAnalysisItem | None] | None = None

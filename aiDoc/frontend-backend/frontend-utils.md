@@ -11,7 +11,7 @@
 
 | 文件 | 用途 |
 |------|------|
-| `src/api/client.ts` | axios 实例，baseURL 已配置为 `http://localhost:8001/api/v1` |
+| `src/api/client.ts` | axios 实例，baseURL 已配置为 `http://localhost:8801/api/v1` |
 
 所有 API 请求必须通过此 client 发起，不要在组件中直接创建 axios 实例。
 

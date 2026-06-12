@@ -445,30 +445,39 @@ def get_stock_daily(
     keyword: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    watchlist_first: bool = True,
 ) -> tuple[list[dict], int]:
     if sort_by not in _ALLOWED_SORTS:
         sort_by = "change_pct"
     order_dir = "DESC" if sort_order == "desc" else "ASC"
     nulls = "NULLS LAST" if sort_order == "desc" else "NULLS FIRST"
 
-    conditions = ["trade_date = ?"]
+    conditions = ["sd.trade_date = ?"]
     params: list = [trade_date]
     if board:
-        conditions.append("board = ?")
+        conditions.append("sd.board = ?")
         params.append(board)
     if keyword:
-        conditions.append("(code LIKE ? OR name LIKE ?)")
+        conditions.append("(sd.code LIKE ? OR sd.name LIKE ?)")
         params.extend([f"%{keyword}%", f"%{keyword}%"])
 
     where = " AND ".join(conditions)
+    order_clause = f"sd.{sort_by} {order_dir} {nulls}"
+    if watchlist_first:
+        order_clause = f"is_watchlist DESC, {order_clause}"
 
     conn = get_connection()
     try:
         total = conn.execute(
-            f"SELECT COUNT(*) FROM stock_daily WHERE {where}", params
+            f"SELECT COUNT(*) FROM stock_daily sd WHERE {where}", params
         ).fetchone()[0]
         rows = conn.execute(
-            f"SELECT * FROM stock_daily WHERE {where} ORDER BY {sort_by} {order_dir} {nulls} LIMIT ? OFFSET ?",
+            f"""SELECT sd.*, CASE WHEN w.code IS NULL THEN 0 ELSE 1 END AS is_watchlist
+                FROM stock_daily sd
+                LEFT JOIN watchlist_stock w ON w.code = sd.code
+                WHERE {where}
+                ORDER BY {order_clause}
+                LIMIT ? OFFSET ?""",
             params + [limit, offset],
         ).fetchall()
     finally:

@@ -11,6 +11,7 @@ import SchedulerPage from "./pages/Scheduler";
 import LLMConfig from "./pages/LLMConfig";
 import AIChat from "./pages/AIChat";
 import StockOverview from "./pages/stock/StockOverview";
+import StockDailyList from "./pages/stock/StockDailyList";
 import StockLimitUp from "./pages/stock/StockLimitUp";
 import StockRecommendation from "./pages/stock/StockRecommendation";
 import StockAnalysis from "./pages/stock/StockAnalysis";
@@ -38,6 +39,7 @@ function App() {
           <Route path="/sector/history" element={<SectorHistory />} />
           <Route path="/stock" element={<Navigate to="/stock/overview" replace />} />
           <Route path="/stock/overview" element={<StockOverview />} />
+          <Route path="/stock/all" element={<StockDailyList />} />
           <Route path="/stock/limit-up" element={<StockLimitUp />} />
           <Route path="/stock/recommendation" element={<Navigate to="/analysis/stock-recommendation" replace />} />
           <Route path="/stock/history" element={<StockHistory />} />

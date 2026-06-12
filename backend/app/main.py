@@ -17,15 +17,19 @@ from app.api.strategy import router as strategy_router
 from app.api.limit_up_analysis import router as limit_up_analysis_router
 from app.api.stock_daily import router as stock_daily_router
 from app.api.stock_analysis import router as stock_analysis_router
+from app.api.watchlist import router as watchlist_router
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
+from app.services.market import snapshot_market_data
 from app.services.sector import snapshot_sector_data
 from app.services.ai_daily_report import generate_ai_daily_report
 from app.services.sector_analysis import generate_sector_analysis, compare_sector_prediction
 from app.services.stock import snapshot_limit_up_data, generate_recommendations, update_morning_performance, update_recommendation_performance
 from app.services.limit_up_analysis import snapshot_limit_up_analysis_data, generate_limit_up_analysis
 from app.services.stock_daily import snapshot_stock_daily
+from app.services.fundamental import snapshot_fundamental_batch
+from app.services.capital_detail import snapshot_capital_detail
 
 SYNC_INTERVAL_SECONDS = 300
 
@@ -45,9 +49,24 @@ async def lifespan(app: FastAPI):
         cron="15 15 * * 1-5",
     )
     add_job(
+        lambda: snapshot_market_data(trigger="scheduled"),
+        job_id="market_snapshot_midday",
+        cron="0 12 * * 1-5",
+    )
+    add_job(
         lambda: snapshot_stock_daily(trigger="scheduled"),
         job_id="stock_daily_snapshot_midday",
         cron="0 12 * * 1-5",
+    )
+    add_job(
+        lambda: snapshot_sector_data(trigger="scheduled"),
+        job_id="sector_snapshot_midday",
+        cron="0 12 * * 1-5",
+    )
+    add_job(
+        lambda: snapshot_market_data(trigger="scheduled"),
+        job_id="market_snapshot_close",
+        cron="10 15 * * 1-5",
     )
     add_job(
         lambda: snapshot_stock_daily(trigger="scheduled"),
@@ -56,7 +75,7 @@ async def lifespan(app: FastAPI):
     )
     add_job(
         lambda: snapshot_sector_data(trigger="scheduled"),
-        job_id="sector_snapshot",
+        job_id="sector_snapshot_close",
         cron="20 15 * * 1-5",
     )
     add_job(
@@ -132,6 +151,16 @@ async def lifespan(app: FastAPI):
         job_id="limit_up_ai_analysis_close",
         cron="5 15 * * 1-5",
     )
+    add_job(
+        lambda: snapshot_fundamental_batch(trigger="scheduled"),
+        job_id="stock_fundamental_snapshot",
+        cron="30 16 * * 1-5",
+    )
+    add_job(
+        lambda: snapshot_capital_detail(trigger="scheduled"),
+        job_id="stock_capital_detail_snapshot",
+        cron="40 16 * * 1-5",
+    )
     yield
     shutdown_scheduler()
 
@@ -159,3 +188,4 @@ app.include_router(strategy_router, prefix="/api/v1")
 app.include_router(limit_up_analysis_router, prefix="/api/v1")
 app.include_router(stock_daily_router, prefix="/api/v1")
 app.include_router(stock_analysis_router, prefix="/api/v1")
+app.include_router(watchlist_router, prefix="/api/v1")

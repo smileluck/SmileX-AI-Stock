@@ -43,7 +43,7 @@
 
 ### 前后端协作 / API 契约
 
-- 后端运行在 `http://localhost:8001`，API 前缀 `/api/v1`
+- 后端运行在 `http://localhost:8801`，API 前缀 `/api/v1`
 - 前端开发服务器 `http://localhost:5173`，通过 CORS 代理访问后端
 - 响应直接返回 Pydantic 序列化 JSON，无统一信封包装
 - 字段命名统一使用 snake_case
