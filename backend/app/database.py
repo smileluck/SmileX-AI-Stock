@@ -392,9 +392,10 @@ _MIGRATIONS = [
     ("INSERT OR IGNORE INTO sector_analysis "
      "(id, trade_date, sector_type, analysis_text, prediction_text, prediction_summary, "
      "actual_data, review_text, scored_news, trend_data, model_used, status, created_at, updated_at) "
-     "SELECT id, trade_date, 'all', analysis_text, '', '{}', '{}', '', '[]', '{}', "
+     "SELECT id, trade_date, 'industry', analysis_text, '', '{}', '{}', '', '[]', '{}', "
      "model_used, status, created_at, updated_at FROM sector_analysis_old"),
     "DROP TABLE IF EXISTS sector_analysis_old",
+    "UPDATE sector_analysis SET sector_type='industry' WHERE sector_type='all'",
 ]
 
 
