@@ -14,7 +14,9 @@ _ENV_DEFAULTS = {
 
 
 def _get_client() -> OpenAI:
-    kwargs: dict = {"base_url": f"{LITELLM_PROXY_URL}/v1", "timeout": 60.0}
+    # timeout=180s：长输出 JSON（推荐/复盘/涨停）单次约 60-120s，60s 会超时；
+    # max_retries=1：SDK 默认 2 次重试会把超时拉到 3x，单次失败快速反馈更可控。
+    kwargs: dict = {"base_url": f"{LITELLM_PROXY_URL}/v1", "timeout": 180.0, "max_retries": 1}
     if LITELLM_MASTER_KEY:
         kwargs["api_key"] = LITELLM_MASTER_KEY
     else:
