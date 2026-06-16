@@ -1172,7 +1172,7 @@ def _preselect_afternoon_candidates(trade_date: str) -> list[dict]:
         if "ST" in name.upper():
             continue
         pct = it.get("change_pct")
-        if pct is not None and pct >= 9.8:
+        if pct is not None and (pct < -2 or pct > 7):
             continue
         if code in zt_codes:
             continue
@@ -1333,12 +1333,10 @@ def _fetch_afternoon_session_data(candidates: list[dict]) -> list[dict]:
         if main_pct is not None:
             signals.append(f"主力净流入{main_pct}%")
         if change_pct is not None:
-            if 2 <= change_pct <= 7:
+            if 0 <= change_pct <= 7:
                 signals.append("尾盘强势")
-            elif change_pct > 7:
-                signals.append("涨幅偏高")
-            elif change_pct < 0:
-                signals.append("回调中")
+            elif -2 <= change_pct < 0:
+                signals.append("回调低吸")
         if amplitude is not None and amplitude > 8:
             signals.append("振幅较大")
         if open_price and current and prev_close:
@@ -1561,8 +1559,9 @@ _REC_AFTERNOON_SYSTEM_PROMPT = """\
 
 2. 推荐原则：
    - **核心信号：主力净流入金额大且占比高（>5%）** 说明资金真金白银介入，明日高开概率大
-   - 尾盘涨幅 0-7% 区间最理想：既反映当日强势，又留有明日上涨空间
-   - 涨幅已经接近 9% 的非涨停股需要谨慎（可能已透支，追高风险大），优先选涨幅适中的
+   - 尾盘涨幅 -2% ~ 7% 区间最理想：包含小幅回调的强势股和稳步上涨的活跃股，既反映资金介入，又留有明日上涨空间
+   - 涨幅已经接近 7% 上限的需要谨慎（可能已透支，追高风险大），可优先选涨幅 0-5% 的品种
+   - 小幅回调（-2% ~ 0%）但主力净流入仍为正的股票，可能是明日低开高走的好机会
    - 量价配合：成交额放大 + 主力净流入同向 + 阳线 + 换手率合理（3%-15%）
    - 板块联动：优先选择所在板块整体强势的龙头，明日板块继续发酵时龙头最先受益
    - 大单/超大单净流入为正且金额较大，是机构资金介入的重要信号
