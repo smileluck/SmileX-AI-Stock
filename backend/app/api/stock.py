@@ -9,6 +9,7 @@ from app.models.market import (
     GenerateRecommendationResponse,
     GenerateRecommendationRequest,
     RefreshRecommendationPriceRequest,
+    RecommendationTaskStatus,
 )
 from app.services.stock import (
     get_stock_overview,
@@ -16,7 +17,8 @@ from app.services.stock import (
     snapshot_limit_up_data,
     get_recommendations_by_date,
     get_recommendation_history,
-    generate_recommendations,
+    get_recommendation_task_status,
+    start_recommendation_task,
     update_recommendation_performance,
 )
 
@@ -57,6 +59,16 @@ def recommendation_history(limit: int = Query(default=50, le=200), offset: int =
     return RecommendationListResponse(items=items, total=total)
 
 
+@router.get("/stock/recommendation/task-status", response_model=RecommendationTaskStatus)
+def recommendation_task_status(
+    trade_date: str | None = Query(default=None, description="YYYY-MM-DD"),
+    phase: str = Query(default="review", description="morning/midday/review/afternoon"),
+):
+    """查询推荐生成任务进度，供前端轮询。"""
+    date = trade_date or datetime.now().strftime("%Y-%m-%d")
+    return get_recommendation_task_status(date, phase)
+
+
 @router.post("/stock/recommendation/refresh-price", response_model=RecommendationListResponse)
 def refresh_recommendation_prices(request: RefreshRecommendationPriceRequest | None = None):
     trade_date = (request.trade_date if request else None) or datetime.now().strftime("%Y-%m-%d")
@@ -68,16 +80,23 @@ def refresh_recommendation_prices(request: RefreshRecommendationPriceRequest | N
 
 @router.post("/stock/recommendation/generate", response_model=GenerateRecommendationResponse)
 def trigger_recommendation_generation(request: GenerateRecommendationRequest | None = None):
+    """立即启动后台推荐生成任务，不等结果直接返回。
+
+    前端用 GET /stock/recommendation/task-status 轮询进度。
+    """
     trade_date = (request.trade_date if request else None) or datetime.now().strftime("%Y-%m-%d")
     phase = (request.phase if request else None) or "afternoon"
     try:
-        result = generate_recommendations(trade_date, phase=phase)
+        result = start_recommendation_task(trade_date, phase)
         phase_label = {"morning": "早盘", "midday": "午盘", "review": "收盘复盘", "afternoon": "午后"}.get(phase, phase)
+        if result.get("already_running"):
+            return GenerateRecommendationResponse(
+                success=False,
+                message=f"{trade_date} 已有{phase_label}推荐任务在运行，请稍后查询进度",
+            )
         return GenerateRecommendationResponse(
             success=True,
-            message=f"{phase_label}推荐生成成功",
-            data=result.get("items"),
-            total=result.get("total", 0),
+            message=f"{phase_label}推荐任务已启动（{trade_date}），可在进度条查看实时状态",
         )
     except Exception as e:
         return GenerateRecommendationResponse(success=False, message=str(e))

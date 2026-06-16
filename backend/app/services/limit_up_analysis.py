@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import threading
 from datetime import datetime
 
 import akshare as ak
@@ -10,6 +11,8 @@ from app.services import llm
 from app.services.stock import _classify_board, _parse_float, _round2
 
 logger = logging.getLogger(__name__)
+
+BATCH_SIZE = 10
 
 
 # ---------------------------------------------------------------------------
@@ -191,58 +194,28 @@ _SYSTEM_PROMPT = """\
 """
 
 
-def _build_analysis_context(trade_date: str, phase: str = "close") -> str:
-    """Build context text from limit_up_analysis data + sector data + news."""
-    phase_label = "午间" if phase == "midday" else "收盘"
-    parts = [f"=== 交易日期: {trade_date} ({phase_label}数据) ===\n"]
-
+def _fetch_pending_items(trade_date: str, phase: str) -> list[dict]:
+    """Read all pending items for the day, ordered by stock_type then amount desc."""
     conn = get_connection()
     try:
-        # Limit-up stocks
         rows = conn.execute(
-            "SELECT code, name, price, change_pct, turnover_rate, amount, "
-            "limit_up_times, sector, board, first_limit_up_time, last_limit_up_time, limit_up_amount "
-            "FROM limit_up_analysis WHERE trade_date = ? AND stock_type = 'limit_up' AND phase = ? "
-            "ORDER BY amount DESC NULLS LAST LIMIT 50",
+            "SELECT id, code, name, price, change_pct, turnover_rate, amount, "
+            "limit_up_times, sector, board, stock_type, "
+            "first_limit_up_time, last_limit_up_time, limit_up_amount "
+            "FROM limit_up_analysis WHERE trade_date = ? AND phase = ? AND status = 'pending' "
+            "ORDER BY stock_type, amount DESC NULLS LAST",
             (trade_date, phase),
         ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
-        if rows:
-            lines = [f"=== 封板股 ({len(rows)}只) ==="]
-            for r in rows:
-                amt = (r["amount"] or 0) / 1e8
-                lines.append(
-                    f"  {r['name']}({r['code']}) 价格{r['price']} 涨幅{r['change_pct']}% "
-                    f"连板{r['limit_up_times']} 换手{r['turnover_rate']}% "
-                    f"成交额{amt:.2f}亿 封板资金{(r['limit_up_amount'] or 0)/1e8:.2f}亿 "
-                    f"首封{r['first_limit_up_time'] or ''} 末封{r['last_limit_up_time'] or ''} "
-                    f"行业:{r['sector']} 板块:{r['board']}"
-                )
-            parts.append("\n".join(lines))
 
-        # Broken limit stocks
-        rows = conn.execute(
-            "SELECT code, name, price, change_pct, turnover_rate, amount, "
-            "limit_up_times, sector, board, first_limit_up_time, last_limit_up_time, limit_up_amount "
-            "FROM limit_up_analysis WHERE trade_date = ? AND stock_type = 'broken' AND phase = ? "
-            "ORDER BY amount DESC NULLS LAST",
-            (trade_date, phase),
-        ).fetchall()
-
-        if rows:
-            lines = [f"=== 炸板股 ({len(rows)}只) ==="]
-            for r in rows:
-                amt = (r["amount"] or 0) / 1e8
-                lines.append(
-                    f"  {r['name']}({r['code']}) 价格{r['price']} 涨幅{r['change_pct']}% "
-                    f"连板{r['limit_up_times']} 换手{r['turnover_rate']}% "
-                    f"成交额{amt:.2f}亿 封板资金{(r['limit_up_amount'] or 0)/1e8:.2f}亿 "
-                    f"首封{r['first_limit_up_time'] or ''} 末封{r['last_limit_up_time'] or ''} "
-                    f"行业:{r['sector']} 板块:{r['board']}"
-                )
-            parts.append("\n".join(lines))
-
-        # Hot sectors
+def _build_shared_context(trade_date: str, phase_label: str) -> str:
+    """Sectors + news shared across all batches (read once, cheap to inline)."""
+    parts: list[str] = []
+    conn = get_connection()
+    try:
         rows = conn.execute(
             "SELECT name, change_pct, main_net_inflow, leading_stock "
             "FROM sector_snapshot_item WHERE trade_date = ? AND sector_type = 'industry' "
@@ -256,7 +229,6 @@ def _build_analysis_context(trade_date: str, phase: str = "close") -> str:
                 lines.append(f"  {r['name']}: 涨幅{r['change_pct']}% 主力净流入{inflow:.2f}亿 领涨:{r['leading_stock']}")
             parts.append("\n".join(lines))
 
-        # Recent news
         rows = conn.execute(
             "SELECT title, source FROM news WHERE date(publish_time) = ? ORDER BY publish_time DESC LIMIT 15",
             (trade_date,),
@@ -268,7 +240,33 @@ def _build_analysis_context(trade_date: str, phase: str = "close") -> str:
             parts.append("\n".join(lines))
     finally:
         conn.close()
+    return "\n\n".join(parts)
 
+
+def _format_stock_line(r: dict) -> str:
+    amt = (r["amount"] or 0) / 1e8
+    return (
+        f"  {r['name']}({r['code']}) 价格{r['price']} 涨幅{r['change_pct']}% "
+        f"连板{r['limit_up_times']} 换手{r['turnover_rate']}% "
+        f"成交额{amt:.2f}亿 封板资金{(r['limit_up_amount'] or 0)/1e8:.2f}亿 "
+        f"首封{r.get('first_limit_up_time') or ''} 末封{r.get('last_limit_up_time') or ''} "
+        f"行业:{r['sector']} 板块:{r['board']}"
+    )
+
+
+def _build_batch_context(batch: list[dict], trade_date: str, phase_label: str, shared: str) -> str:
+    """Build context for one batch of stocks."""
+    parts = [f"=== 交易日期: {trade_date} ({phase_label}数据) ===\n"]
+    limit_up = [r for r in batch if r["stock_type"] == "limit_up"]
+    broken = [r for r in batch if r["stock_type"] == "broken"]
+    if limit_up:
+        parts.append("=== 封板股 ({n}只) ===\n{body}".format(
+            n=len(limit_up), body="\n".join(_format_stock_line(r) for r in limit_up)))
+    if broken:
+        parts.append("=== 炸板股 ({n}只) ===\n{body}".format(
+            n=len(broken), body="\n".join(_format_stock_line(r) for r in broken)))
+    if shared:
+        parts.append(shared)
     return "\n\n".join(parts)
 
 
@@ -286,56 +284,75 @@ def _parse_analysis_json(text: str) -> list[dict]:
     return []
 
 
-def generate_limit_up_analysis(trade_date: str | None = None, phase: str = "close") -> dict:
-    """Generate AI analysis for all limit-up stocks of the day."""
-    if not trade_date:
-        trade_date = datetime.now().strftime("%Y-%m-%d")
+# ---------------------------------------------------------------------------
+# Background task tracking
+# ---------------------------------------------------------------------------
 
+_tasks_lock = threading.Lock()
+_running_tasks: dict[tuple[str, str], dict] = {}
+
+
+def get_analysis_task_status(trade_date: str, phase: str) -> dict:
+    """Return current progress for an analysis task."""
+    key = (trade_date, phase)
+    with _tasks_lock:
+        task = _running_tasks.get(key)
+        if not task:
+            return {"active": False, "total": 0, "done": 0, "percent": 0, "phase": phase}
+        total = task["total"]
+        done = task["done"]
+        percent = round(done / total * 100) if total else 0
+        return {
+            "active": task["active"],
+            "total": total,
+            "done": done,
+            "percent": percent,
+            "phase": phase,
+            "started_at": task.get("started_at"),
+            "error": task.get("error"),
+        }
+
+
+def _save_batch_results(trade_date: str, phase: str, analyses: list[dict], ids_in_batch: list[int]) -> int:
+    """Persist batch analysis results. Returns count of rows actually updated with AI fields."""
+    if not analyses or not ids_in_batch:
+        # Mark these as completed (no AI data) so they don't get re-analyzed
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = get_connection()
+        try:
+            placeholders = ",".join("?" * len(ids_in_batch))
+            conn.execute(
+                f"UPDATE limit_up_analysis SET status = 'completed', updated_at = ? "
+                f"WHERE id IN ({placeholders})",
+                [now, *ids_in_batch],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return 0
+
+    analysis_map = {a.get("code", ""): a for a in analyses if a.get("code")}
+    model_used = llm.get_model_for_function("analysis")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    context = _build_analysis_context(trade_date, phase=phase)
-    if not context or "封板股" not in context and "炸板股" not in context:
-        return {"trade_date": trade_date, "items": [], "total": 0, "status": "no_data"}
-
-    messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": context},
-    ]
-
-    try:
-        response = llm.function_chat("limit_up_analysis", messages)
-    except Exception:
-        logger.exception("LLM call failed for limit-up analysis")
-        return {"trade_date": trade_date, "items": [], "total": 0, "status": "llm_error"}
-
-    analyses = _parse_analysis_json(response)
-    if not analyses:
-        logger.warning("No analysis parsed from LLM response")
-        return {"trade_date": trade_date, "items": [], "total": 0, "status": "parse_error"}
-
-    analysis_map = {}
-    for a in analyses:
-        code = a.get("code", "")
-        if code:
-            analysis_map[code] = a
-
-    model_used = llm.get_model_for_function("analysis")
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT id, code FROM limit_up_analysis WHERE trade_date = ? AND phase = ?",
-            (trade_date, phase),
+            f"SELECT id, code FROM limit_up_analysis WHERE id IN ({','.join('?' * len(ids_in_batch))})",
+            ids_in_batch,
         ).fetchall()
-
         updated = 0
         for row in rows:
             a = analysis_map.get(row["code"])
             if not a:
+                conn.execute(
+                    "UPDATE limit_up_analysis SET status = 'completed', updated_at = ? WHERE id = ?",
+                    (now, row["id"]),
+                )
                 continue
             key_factors = a.get("ai_key_factors", [])
             if isinstance(key_factors, list):
                 key_factors = json.dumps(key_factors, ensure_ascii=False)
-
             conn.execute(
                 """UPDATE limit_up_analysis SET
                    ai_reason = ?, ai_tomorrow_judge = ?, ai_tomorrow_prob = ?,
@@ -354,30 +371,111 @@ def generate_limit_up_analysis(trade_date: str | None = None, phase: str = "clos
                 ),
             )
             updated += 1
-
-        for row in rows:
-            if row["code"] not in analysis_map:
-                conn.execute(
-                    "UPDATE limit_up_analysis SET status = 'completed', updated_at = ? WHERE id = ?",
-                    (now, row["id"]),
-                )
-
         conn.commit()
-
-        result_rows = conn.execute(
-            "SELECT * FROM limit_up_analysis WHERE trade_date = ? AND phase = ? ORDER BY stock_type, amount DESC NULLS LAST",
-            (trade_date, phase),
-        ).fetchall()
-        items = [dict(r) for r in result_rows]
+        return updated
     except Exception:
         conn.rollback()
-        logger.exception("Failed to save limit-up analysis")
         raise
     finally:
         conn.close()
 
-    logger.info("Limit-up AI analysis (%s) for %s: %d/%d stocks analyzed", phase, trade_date, updated, len(rows or []))
-    return {"trade_date": trade_date, "items": items, "total": len(items), "phase": phase, "status": "ok"}
+
+def _worker(trade_date: str, phase: str, items: list[dict], shared: str):
+    """Background worker: split items into batches, call LLM per batch, persist results."""
+    key = (trade_date, phase)
+    phase_label = "午间" if phase == "midday" else "收盘"
+    total = len(items)
+    done = 0
+    with _tasks_lock:
+        _running_tasks[key]["active"] = True
+
+    for i in range(0, total, BATCH_SIZE):
+        batch = items[i:i + BATCH_SIZE]
+        ids_in_batch = [r["id"] for r in batch]
+        context = _build_batch_context(batch, trade_date, phase_label, shared)
+        messages = [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": context},
+        ]
+        try:
+            response = llm.function_chat("limit_up_analysis", messages)
+            analyses = _parse_analysis_json(response)
+            updated = _save_batch_results(trade_date, phase, analyses, ids_in_batch)
+            logger.info("Limit-up batch (%s/%s) %s: %d/%d stocks analyzed",
+                        phase, trade_date, f"{i//BATCH_SIZE+1}", updated, len(batch))
+        except Exception:
+            logger.exception("Limit-up batch failed (%s, %s, batch starting at %d)", trade_date, phase, i)
+            # mark this batch as completed (no AI data) so it doesn't block progress
+            try:
+                _save_batch_results(trade_date, phase, [], ids_in_batch)
+            except Exception:
+                logger.exception("Failed to mark batch as completed after error")
+
+        done += len(batch)
+        with _tasks_lock:
+            if key in _running_tasks:
+                _running_tasks[key]["done"] = done
+
+    with _tasks_lock:
+        if key in _running_tasks:
+            _running_tasks[key]["active"] = False
+    logger.info("Limit-up AI analysis done (%s) for %s: %d stocks", phase, trade_date, total)
+
+
+def start_analysis_task(trade_date: str, phase: str) -> dict:
+    """Trigger async batched analysis. Returns immediately with task status."""
+    key = (trade_date, phase)
+    with _tasks_lock:
+        existing = _running_tasks.get(key)
+        if existing and existing.get("active"):
+            return {
+                "started": False,
+                "already_running": True,
+                "trade_date": trade_date,
+                "phase": phase,
+                **{k: existing.get(k) for k in ("total", "done")},
+            }
+
+    items = _fetch_pending_items(trade_date, phase)
+    if not items:
+        return {
+            "started": False,
+            "already_running": False,
+            "no_data": True,
+            "trade_date": trade_date,
+            "phase": phase,
+            "total": 0,
+            "done": 0,
+        }
+
+    shared = _build_shared_context(trade_date, "午间" if phase == "midday" else "收盘")
+    with _tasks_lock:
+        _running_tasks[key] = {
+            "active": True,
+            "total": len(items),
+            "done": 0,
+            "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    t = threading.Thread(target=_worker, args=(trade_date, phase, items, shared), daemon=True)
+    t.start()
+    logger.info("Started limit-up AI analysis task (%s) for %s: %d pending items", phase, trade_date, len(items))
+
+    return {
+        "started": True,
+        "already_running": False,
+        "trade_date": trade_date,
+        "phase": phase,
+        "total": len(items),
+        "done": 0,
+    }
+
+
+def generate_limit_up_analysis(trade_date: str | None = None, phase: str = "close") -> dict:
+    """Backward-compat entry point for scheduled jobs. Triggers async task and returns immediately."""
+    if not trade_date:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+    return start_analysis_task(trade_date, phase)
 
 
 # ---------------------------------------------------------------------------

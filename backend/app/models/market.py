@@ -363,6 +363,18 @@ class GenerateRecommendationRequest(BaseModel):
     phase: str = "afternoon"
 
 
+class RecommendationTaskStatus(BaseModel):
+    active: bool
+    status: str
+    trade_date: str
+    phase: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    stage: str | None = None
+    total: int = 0
+    error: str | None = None
+
+
 class RefreshRecommendationPriceRequest(BaseModel):
     trade_date: str | None = None
     phase: str = "morning"
@@ -404,6 +416,18 @@ class GenerateStockAnalysisResponse(BaseModel):
     data: StockAnalysisItem | None = None
 
 
+class StockAnalysisTaskStatus(BaseModel):
+    active: bool
+    status: str
+    code: str
+    trade_date: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    stage: str | None = None
+    analysis_id: int | None = None
+    error: str | None = None
+
+
 # --- Sector AI Analysis ---
 
 class SectorAnalysisItem(BaseModel):
@@ -437,3 +461,95 @@ class GenerateSectorAnalysisResponse(BaseModel):
     success: bool
     message: str
     data: SectorAnalysisItem | dict[str, SectorAnalysisItem | None] | None = None
+
+
+# --- Tomorrow Strategy ---
+
+class TomorrowStrategyEvent(BaseModel):
+    title: str | None = None
+    source: str | None = None
+    impact: str | None = None
+
+
+class TomorrowStrategySector(BaseModel):
+    rank: int | None = None
+    code: str | None = None
+    name: str | None = None
+    sector_type: str | None = None
+    change_pct_today: float | None = None
+    streak_up_days: int | None = None
+    main_net_inflow_yi: float | None = None
+    news_count: int | None = None
+    news_avg_score: float | None = None
+    top_events: list[TomorrowStrategyEvent] = []
+    sustainability: str | None = None
+    sustainability_reason: str | None = None
+    tomorrow_outlook: str | None = None
+
+
+class TomorrowStrategyStock(BaseModel):
+    sector_code: str | None = None
+    sector_name: str | None = None
+    code: str | None = None
+    name: str | None = None
+    role: str | None = None
+    entry_logic: str | None = None
+    watch_price_low: float | None = None
+    watch_price_high: float | None = None
+    stop_loss_price: float | None = None
+    target_price: float | None = None
+    risk_tags: list[str] = []
+
+
+class TomorrowStrategyAdvice(BaseModel):
+    position_level: str | None = None
+    style: str | None = None
+    market_bias: str | None = None
+    risk_warnings: list[str] = []
+    actionable_summary: str | None = None
+
+
+class TomorrowStrategyItem(BaseModel):
+    id: int
+    trade_date: str
+    content_json: dict = {}
+    raw_text: str = ""
+    sectors_json: list[TomorrowStrategySector] = []
+    stocks_json: list[TomorrowStrategyStock] = []
+    strategy_json: TomorrowStrategyAdvice = {}
+    model_used: str = ""
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class TomorrowStrategyHistoryItem(BaseModel):
+    id: int
+    trade_date: str
+    status: str
+    model_used: str | None = None
+    sector_count: int | None = None
+    stock_count: int | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class TomorrowStrategyResponse(BaseModel):
+    items: list[TomorrowStrategyHistoryItem]
+    total: int
+
+
+class GenerateTomorrowStrategyResponse(BaseModel):
+    success: bool
+    message: str
+    data: TomorrowStrategyItem | None = None
+
+
+class TomorrowStrategyTaskStatus(BaseModel):
+    active: bool
+    status: str
+    trade_date: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    stage: str | None = None
+    error: str | None = None

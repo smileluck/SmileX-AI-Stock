@@ -35,6 +35,33 @@ export async function triggerStockAnalysis(
   const { data } = await client.post("/stock/analysis/generate", {
     code,
     trade_date: tradeDate || null,
+  }, {
+    timeout: 30000,
+  });
+  return data;
+}
+
+export interface StockAnalysisTaskStatus {
+  active: boolean;
+  status: string;
+  code: string;
+  trade_date: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  stage?: string | null;
+  analysis_id?: number | null;
+  error?: string | null;
+}
+
+export async function fetchStockAnalysisTaskStatus(
+  code: string,
+  tradeDate?: string,
+): Promise<StockAnalysisTaskStatus> {
+  const params: Record<string, string> = { code };
+  if (tradeDate) params.trade_date = tradeDate;
+  const { data } = await client.get("/stock/analysis/task-status", {
+    params,
+    timeout: 10000,
   });
   return data;
 }

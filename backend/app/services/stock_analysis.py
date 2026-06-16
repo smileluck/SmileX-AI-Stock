@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import threading
 from datetime import datetime
 
 from app.database import get_connection
@@ -306,7 +307,11 @@ def _run_llm_analysis(stock_data: dict, context_data: dict, news: list[dict], an
         raise
 
 
-def generate_stock_analysis(code: str, trade_date: str | None = None) -> dict:
+def _run_stock_analysis_sync(code: str, trade_date: str) -> dict:
+    """同步执行完整个股分析流程（数据准备 → LLM → 落库）。
+
+    供后台 worker 与同步入口共同使用。
+    """
     normalized_code = _strip_code(code.strip().upper())
     if trade_date is None:
         trade_date = datetime.now().strftime("%Y-%m-%d")
@@ -429,3 +434,146 @@ def process_waiting_stock_analysis(trade_date: str) -> dict:
             failed += 1
 
     return {"processed": processed, "failed": failed, "total": len(rows)}
+
+
+# ---------------------------------------------------------------------------
+# 异步任务管理（参考 limit_up_analysis / tomorrow_strategy 的范式）
+# 任务 key 用 (code, trade_date) 元组，避免不同股票/日期的任务互相干扰
+# ---------------------------------------------------------------------------
+
+_tasks_lock = threading.Lock()
+_running_tasks: dict[tuple[str, str], dict] = {}
+
+
+def _set_task_stage(key: tuple[str, str], stage: str) -> None:
+    with _tasks_lock:
+        if key in _running_tasks:
+            _running_tasks[key]["stage"] = stage
+
+
+def get_stock_analysis_task_status(code: str, trade_date: str | None = None) -> dict:
+    """查询单只股票分析任务进度，供前端轮询。"""
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+    normalized = _strip_code(code.strip().upper())
+    key = (normalized, trade_date)
+    with _tasks_lock:
+        task = _running_tasks.get(key)
+        if not task:
+            return {
+                "active": False,
+                "status": "idle",
+                "code": normalized,
+                "trade_date": trade_date,
+                "started_at": None,
+                "finished_at": None,
+                "stage": None,
+                "analysis_id": None,
+                "error": None,
+            }
+        return {
+            "active": task["active"],
+            "status": task.get("status", "idle"),
+            "code": normalized,
+            "trade_date": trade_date,
+            "started_at": task.get("started_at"),
+            "finished_at": task.get("finished_at"),
+            "stage": task.get("stage"),
+            "analysis_id": task.get("analysis_id"),
+            "error": task.get("error"),
+        }
+
+
+def _stock_analysis_worker(code: str, trade_date: str) -> None:
+    """后台线程：跑完单只股票分析，实时更新 stage。"""
+    normalized = _strip_code(code.strip().upper())
+    key = (normalized, trade_date)
+    try:
+        _set_task_stage(key, "数据准备")
+        result = _run_stock_analysis_sync(normalized, trade_date)
+
+        with _tasks_lock:
+            if key in _running_tasks:
+                _running_tasks[key]["active"] = False
+                _running_tasks[key]["status"] = "completed"
+                _running_tasks[key]["stage"] = None
+                _running_tasks[key]["analysis_id"] = result.get("id") if isinstance(result, dict) else None
+                _running_tasks[key]["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info("个股分析任务完成 code=%s trade_date=%s", normalized, trade_date)
+    except Exception as e:
+        logger.exception("个股分析任务异常 code=%s trade_date=%s", normalized, trade_date)
+        with _tasks_lock:
+            if key in _running_tasks:
+                _running_tasks[key]["active"] = False
+                _running_tasks[key]["status"] = "failed"
+                _running_tasks[key]["error"] = str(e)
+                _running_tasks[key]["stage"] = None
+                _running_tasks[key]["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def start_stock_analysis_task(code: str, trade_date: str | None = None) -> dict:
+    """立即启动后台个股分析任务。重复触发同一 code+date 时，若仍在跑则复用。"""
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+    normalized = _strip_code(code.strip().upper())
+    key = (normalized, trade_date)
+
+    with _tasks_lock:
+        existing = _running_tasks.get(key)
+        if existing and existing.get("active"):
+            return {
+                "started": False,
+                "already_running": True,
+                "code": normalized,
+                "trade_date": trade_date,
+                "started_at": existing.get("started_at"),
+                "stage": existing.get("stage"),
+            }
+        _running_tasks[key] = {
+            "active": True,
+            "status": "running",
+            "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "finished_at": None,
+            "stage": "初始化",
+            "analysis_id": None,
+            "error": None,
+        }
+
+    t = threading.Thread(target=_stock_analysis_worker, args=(normalized, trade_date), daemon=True)
+    t.start()
+    logger.info("已启动个股分析任务 code=%s trade_date=%s", normalized, trade_date)
+
+    return {
+        "started": True,
+        "already_running": False,
+        "code": normalized,
+        "trade_date": trade_date,
+        "started_at": _running_tasks[key]["started_at"],
+        "stage": _running_tasks[key]["stage"],
+    }
+
+
+def generate_stock_analysis(code: str, trade_date: str | None = None) -> dict:
+    """同步入口（兼容旧调用方），阻塞等待后台任务完成。"""
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+    normalized = _strip_code(code.strip().upper())
+
+    with _tasks_lock:
+        existing = _running_tasks.get((normalized, trade_date))
+        if existing and existing.get("active"):
+            logger.info("已有同 code+date 任务在跑，复用 code=%s", normalized)
+        else:
+            start_stock_analysis_task(normalized, trade_date)
+
+    # 同步等待
+    import time
+    while True:
+        with _tasks_lock:
+            task = _running_tasks.get((normalized, trade_date))
+            if not task or not task["active"]:
+                break
+        time.sleep(2)
+
+    # 返回最新分析记录
+    return get_latest_stock_analysis(normalized) or {"code": normalized, "trade_date": trade_date, "status": "unknown"}

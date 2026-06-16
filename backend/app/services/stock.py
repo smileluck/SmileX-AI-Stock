@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -1536,8 +1537,11 @@ def _parse_recommendation_json(text: str) -> list[dict]:
     return []
 
 
-def generate_recommendations(trade_date: str | None = None, phase: str = "afternoon") -> dict:
-    """Generate AI stock recommendations."""
+def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
+    """同步执行推荐生成流程（候选股/复盘数据准备 → LLM → 实时价覆盖 → 落库）。
+
+    供后台 worker 与同步入口共同使用。
+    """
     if not trade_date:
         trade_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -1703,6 +1707,154 @@ def generate_recommendations(trade_date: str | None = None, phase: str = "aftern
         conn.close()
 
     logger.info("Generated %d %s recommendations for %s", len(items), phase, trade_date)
+    return {"items": items, "total": len(items)}
+
+
+# ---------------------------------------------------------------------------
+# 异步任务管理（参考 limit_up_analysis / tomorrow_strategy 的范式）
+# 任务 key 用 (trade_date, phase) 元组，不同 phase 互不干扰
+# ---------------------------------------------------------------------------
+
+_rec_tasks_lock = threading.Lock()
+_running_rec_tasks: dict[tuple[str, str], dict] = {}
+
+
+def _set_rec_stage(key: tuple[str, str], stage: str) -> None:
+    with _rec_tasks_lock:
+        if key in _running_rec_tasks:
+            _running_rec_tasks[key]["stage"] = stage
+
+
+def get_recommendation_task_status(trade_date: str, phase: str) -> dict:
+    """查询推荐生成任务进度，供前端轮询。"""
+    key = (trade_date, phase)
+    with _rec_tasks_lock:
+        task = _running_rec_tasks.get(key)
+        if not task:
+            return {
+                "active": False,
+                "status": "idle",
+                "trade_date": trade_date,
+                "phase": phase,
+                "started_at": None,
+                "finished_at": None,
+                "stage": None,
+                "total": 0,
+                "error": None,
+            }
+        return {
+            "active": task["active"],
+            "status": task.get("status", "idle"),
+            "trade_date": trade_date,
+            "phase": phase,
+            "started_at": task.get("started_at"),
+            "finished_at": task.get("finished_at"),
+            "stage": task.get("stage"),
+            "total": task.get("total", 0),
+            "error": task.get("error"),
+        }
+
+
+def _recommendation_worker(trade_date: str, phase: str) -> None:
+    """后台线程：跑完整推荐流程，更新任务状态。"""
+    key = (trade_date, phase)
+    phase_label = {"morning": "早盘", "midday": "午盘", "review": "收盘复盘", "afternoon": "午后"}.get(phase, phase)
+    try:
+        if phase == "morning":
+            _set_rec_stage(key, "候选股预筛+竞价数据")
+        elif phase == "midday":
+            _set_rec_stage(key, "候选股预筛+上午行情")
+        elif phase == "review":
+            _set_rec_stage(key, "更新早盘/午盘实际收益")
+        else:
+            _set_rec_stage(key, "数据准备")
+
+        _set_rec_stage(key, "LLM 分析中（最久环节，约 1-3 分钟）")
+        result = _run_recommendations_sync(trade_date, phase)
+        total = result.get("total", 0) if isinstance(result, dict) else 0
+
+        with _rec_tasks_lock:
+            if key in _running_rec_tasks:
+                _running_rec_tasks[key]["active"] = False
+                _running_rec_tasks[key]["status"] = "completed"
+                _running_rec_tasks[key]["stage"] = None
+                _running_rec_tasks[key]["total"] = total
+                _running_rec_tasks[key]["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info("%s推荐任务完成 trade_date=%s 共 %d 条", phase_label, trade_date, total)
+    except Exception as e:
+        logger.exception("%s推荐任务异常 trade_date=%s", phase_label, trade_date)
+        with _rec_tasks_lock:
+            if key in _running_rec_tasks:
+                _running_rec_tasks[key]["active"] = False
+                _running_rec_tasks[key]["status"] = "failed"
+                _running_rec_tasks[key]["error"] = str(e)
+                _running_rec_tasks[key]["stage"] = None
+                _running_rec_tasks[key]["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def start_recommendation_task(trade_date: str, phase: str) -> dict:
+    """立即启动后台推荐生成任务。重复触发同一 date+phase 时，若仍在跑则复用。"""
+    key = (trade_date, phase)
+    with _rec_tasks_lock:
+        existing = _running_rec_tasks.get(key)
+        if existing and existing.get("active"):
+            return {
+                "started": False,
+                "already_running": True,
+                "trade_date": trade_date,
+                "phase": phase,
+                "started_at": existing.get("started_at"),
+                "stage": existing.get("stage"),
+            }
+        _running_rec_tasks[key] = {
+            "active": True,
+            "status": "running",
+            "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "finished_at": None,
+            "stage": "初始化",
+            "total": 0,
+            "error": None,
+        }
+
+    t = threading.Thread(target=_recommendation_worker, args=(trade_date, phase), daemon=True)
+    t.start()
+    logger.info("已启动推荐生成任务 phase=%s trade_date=%s", phase, trade_date)
+
+    return {
+        "started": True,
+        "already_running": False,
+        "trade_date": trade_date,
+        "phase": phase,
+        "started_at": _running_rec_tasks[key]["started_at"],
+        "stage": _running_rec_tasks[key]["stage"],
+    }
+
+
+def generate_recommendations(trade_date: str | None = None, phase: str = "afternoon") -> dict:
+    """同步入口（供定时任务 main.py 调用，与原签名兼容）。
+
+    若已有同 date+phase 任务在跑则直接复用，避免定时任务与手动触发重复执行。
+    """
+    if not trade_date:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+
+    with _rec_tasks_lock:
+        existing = _running_rec_tasks.get((trade_date, phase))
+        if existing and existing.get("active"):
+            logger.info("已有同 date+phase 任务在跑，复用 phase=%s", phase)
+        else:
+            start_recommendation_task(trade_date, phase)
+
+    # 同步等待完成
+    import time
+    while True:
+        with _rec_tasks_lock:
+            task = _running_rec_tasks.get((trade_date, phase))
+            if not task or not task["active"]:
+                break
+        time.sleep(2)
+
+    items = get_recommendations_by_date(trade_date, phase)
     return {"items": items, "total": len(items)}
 
 

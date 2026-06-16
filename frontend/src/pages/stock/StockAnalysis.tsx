@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -16,13 +16,15 @@ import {
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { BulbOutlined, SyncOutlined } from "@ant-design/icons";
+import { BulbOutlined, SyncOutlined, LoadingOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import StockLink from "../../components/StockLink";
 import {
   fetchLatestStockAnalysis,
   fetchStockAnalysisHistory,
+  fetchStockAnalysisTaskStatus,
   triggerStockAnalysis,
+  type StockAnalysisTaskStatus,
 } from "../../api/stockAnalysis";
 import type { StockAnalysisItem } from "../../types";
 
@@ -208,6 +210,53 @@ export default function StockAnalysis() {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [taskStatus, setTaskStatus] = useState<StockAnalysisTaskStatus | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeCodeRef = useRef<string>("");
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback((targetCode: string, targetDate: string | undefined) => {
+    stopPolling();
+    activeCodeRef.current = targetCode;
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const [statusRes, latestRes] = await Promise.all([
+          fetchStockAnalysisTaskStatus(targetCode, targetDate),
+          fetchLatestStockAnalysis(targetCode),
+        ]);
+        setTaskStatus(statusRes);
+        if (latestRes) {
+          setCurrent(latestRes);
+        }
+        if (!statusRes.active) {
+          stopPolling();
+          setGenerating(false);
+          if (statusRes.status === "completed") {
+            message.success(`个股分析完成：${targetCode}`);
+            // 重新加载历史
+            fetchStockAnalysisHistory(targetCode, PAGE_SIZE, 0)
+              .then((res) => {
+                setItems(res.items);
+                setTotal(res.total);
+                setPage(1);
+              })
+              .catch(() => {});
+          } else if (statusRes.status === "failed") {
+            message.error(statusRes.error || "个股分析失败");
+            setError(statusRes.error || "个股分析失败");
+          }
+        }
+      } catch {
+        // 轮询期间临时错误忽略
+      }
+    }, 5000);
+  }, [stopPolling]);
 
   const loadHistory = useCallback(async (targetPage = page, targetCode = code.trim()) => {
     setLoading(true);
@@ -255,8 +304,9 @@ export default function StockAnalysis() {
     initData();
     return () => {
       cancelled = true;
+      stopPolling();
     };
-  }, []);
+  }, [stopPolling]);
 
   const handleGenerate = async () => {
     const targetCode = code.trim();
@@ -265,21 +315,25 @@ export default function StockAnalysis() {
       return;
     }
     setGenerating(true);
+    setError(null);
     try {
       const res = await triggerStockAnalysis(targetCode, date);
-      if (res.success && res.data) {
-        message.success(res.message);
-        setCurrent(res.data);
-        loadHistory(1, targetCode);
+      if (res.success) {
+        message.success(res.message || "个股分析任务已启动");
+        startPolling(targetCode, date);
       } else {
-        message.error(res.message || "生成个股分析失败");
+        // already_running 等情况，恢复轮询
+        message.warning(res.message || "生成个股分析失败");
+        startPolling(targetCode, date);
       }
     } catch {
       message.error("生成个股分析失败");
-    } finally {
       setGenerating(false);
     }
   };
+
+  const taskActive = taskStatus?.active === true && activeCodeRef.current === code.trim();
+  const taskStage = taskStatus?.stage;
 
   const columns: ColumnsType<StockAnalysisItem> = [
     {
@@ -357,7 +411,29 @@ export default function StockAnalysis() {
         </Space>
       </div>
 
-      {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
+      {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} closable onClose={() => setError(null)} />}
+
+      {taskActive && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<LoadingOutlined />}
+          style={{ marginBottom: 16 }}
+          message={
+            <Space direction="vertical" size={4} style={{ width: "100%" }}>
+              <span>
+                正在生成 {code.trim()} 的个股分析
+                {taskStage ? ` · 当前阶段：${taskStage}` : ""}
+                {taskStatus?.started_at ? ` · 启动于 ${dayjs(taskStatus.started_at).format("HH:mm:ss")}` : ""}
+              </span>
+              <Progress percent={taskStage ? 60 : 30} status="active" size="small" showInfo={false} />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                若股票当日行情未采集，会先触发数据采集，再调 LLM 分析，整体可能需要 1-3 分钟。可切到其他页面，任务在后台继续跑。
+              </Typography.Text>
+            </Space>
+          }
+        />
+      )}
 
       <Spin spinning={loading && !generating}>
         <AnalysisCard record={current} />

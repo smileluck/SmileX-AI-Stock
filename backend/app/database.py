@@ -353,6 +353,38 @@ CREATE INDEX IF NOT EXISTS idx_sa_code ON stock_analysis(code);
 CREATE INDEX IF NOT EXISTS idx_sa_trade_date ON stock_analysis(trade_date);
 CREATE INDEX IF NOT EXISTS idx_sa_created_at ON stock_analysis(created_at);
 CREATE INDEX IF NOT EXISTS idx_sa_code_date ON stock_analysis(code, trade_date);
+
+CREATE TABLE IF NOT EXISTS news_sector_association (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    news_id         INTEGER NOT NULL,
+    sector_code     TEXT NOT NULL,
+    sector_name     TEXT NOT NULL,
+    sector_type     TEXT NOT NULL,
+    impact_score    REAL NOT NULL DEFAULT 5,
+    impact_category TEXT DEFAULT '其他',
+    relevance       TEXT DEFAULT 'medium',
+    trade_date      TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_nsa_news ON news_sector_association(news_id);
+CREATE INDEX IF NOT EXISTS idx_nsa_sector_date ON news_sector_association(sector_code, trade_date);
+CREATE INDEX IF NOT EXISTS idx_nsa_date ON news_sector_association(trade_date);
+
+CREATE TABLE IF NOT EXISTS tomorrow_strategy (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date      TEXT UNIQUE NOT NULL,
+    content_json    TEXT NOT NULL DEFAULT '{}',
+    raw_text        TEXT NOT NULL DEFAULT '',
+    sectors_json    TEXT NOT NULL DEFAULT '[]',
+    stocks_json     TEXT NOT NULL DEFAULT '[]',
+    strategy_json   TEXT NOT NULL DEFAULT '{}',
+    model_used      TEXT NOT NULL DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'pending',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ts_date ON tomorrow_strategy(trade_date);
+CREATE INDEX IF NOT EXISTS idx_ts_status ON tomorrow_strategy(status);
 """
 
 

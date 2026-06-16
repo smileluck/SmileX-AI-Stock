@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Button,
   Spin,
@@ -24,6 +24,8 @@ import {
   fetchLimitUpAnalysis,
   triggerLimitUpAnalysisSnapshot,
   triggerLimitUpAnalysisGenerate,
+  fetchLimitUpAnalysisTaskStatus,
+  type LimitUpAnalysisTaskStatus,
 } from "../../api/limitUpAnalysis";
 import StockLink from "../../components/StockLink";
 import type { LimitUpAnalysisItem } from "../../types";
@@ -80,23 +82,73 @@ export default function LimitUpAnalysis() {
   const [activeBoard, setActiveBoard] = useState<string>("all");
   const [activeType, setActiveType] = useState<string>("all");
   const [activePhase, setActivePhase] = useState<string>("close");
+  const [taskStatus, setTaskStatus] = useState<LimitUpAnalysisTaskStatus | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const pollTaskAndData = useCallback(async (tradeDate: string, phase: string) => {
+    try {
+      const [statusRes, dataRes] = await Promise.all([
+        fetchLimitUpAnalysisTaskStatus(tradeDate, phase),
+        fetchLimitUpAnalysis(tradeDate, undefined, undefined, phase),
+      ]);
+      setTaskStatus(statusRes);
+      setItems(dataRes.items || []);
+      if (!statusRes.active) {
+        stopPolling();
+        setGenLoading(false);
+        if (statusRes.done > 0 && statusRes.done >= statusRes.total) {
+          message.success(`AI分析完成：${statusRes.done}/${statusRes.total}`);
+        }
+      }
+    } catch {
+      // ignore transient poll errors, keep polling
+    }
+  }, [stopPolling]);
+
+  const startPolling = useCallback((tradeDate: string, phase: string) => {
+    stopPolling();
+    pollTimerRef.current = setInterval(() => {
+      pollTaskAndData(tradeDate, phase);
+    }, 5000);
+  }, [stopPolling, pollTaskAndData]);
 
   const loadData = useCallback(async (tradeDate?: string, phase?: string) => {
     setLoading(true);
     setError(null);
+    const td = tradeDate || date;
+    const ph = phase || activePhase;
     try {
-      const res = await fetchLimitUpAnalysis(tradeDate || date, undefined, undefined, phase || activePhase);
-      setItems(res.items || []);
+      const [dataRes, statusRes] = await Promise.all([
+        fetchLimitUpAnalysis(td, undefined, undefined, ph),
+        fetchLimitUpAnalysisTaskStatus(td, ph),
+      ]);
+      setItems(dataRes.items || []);
+      setTaskStatus(statusRes);
+      if (statusRes.active) {
+        setGenLoading(true);
+        startPolling(td, ph);
+      } else {
+        setGenLoading(false);
+        stopPolling();
+      }
     } catch {
       setError("获取涨停分析数据失败，请检查后端服务是否启动");
     } finally {
       setLoading(false);
     }
-  }, [date, activePhase]);
+  }, [date, activePhase, startPolling, stopPolling]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    return () => stopPolling();
+  }, [loadData, stopPolling]);
 
   const handleSnapshot = async () => {
     setSnapLoading(true);
@@ -120,14 +172,25 @@ export default function LimitUpAnalysis() {
     try {
       const res = await triggerLimitUpAnalysisGenerate(date, activePhase);
       if (res.success) {
-        message.success("AI分析生成完成");
-        loadData();
+        const total = res.data?.total ?? 0;
+        message.success(`AI分析任务已启动，共 ${total} 只待分析`);
+        setTaskStatus({
+          active: true,
+          total,
+          done: 0,
+          percent: 0,
+          phase: activePhase,
+        });
+        startPolling(date, activePhase);
+      } else if (res.already_running) {
+        message.info("已有分析任务在运行中");
+        startPolling(date, activePhase);
       } else {
         message.error(res.message || "AI分析生成失败");
+        setGenLoading(false);
       }
     } catch {
       message.error("AI分析生成失败");
-    } finally {
       setGenLoading(false);
     }
   };
@@ -350,6 +413,16 @@ export default function LimitUpAnalysis() {
 
       {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
 
+      {taskStatus && taskStatus.active && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`AI 分析任务运行中：${taskStatus.done} / ${taskStatus.total} 已分析`}
+          description={<Progress percent={taskStatus.percent} size="small" status="active" />}
+        />
+      )}
+
       <Tabs
         activeKey={activePhase}
         onChange={(key) => { setActivePhase(key); loadData(undefined, key); }}
@@ -391,9 +464,14 @@ export default function LimitUpAnalysis() {
             </Col>
             <Col span={8}>
               <Card size="small" title="分析进度" styles={{ body: { padding: 16 } }}>
-                <Progress type="circle" percent={items.length ? Math.round(analyzedCount / items.length * 100) : 0} size={120} />
+                <Progress
+                  type="circle"
+                  percent={taskStatus && taskStatus.total > 0 ? taskStatus.percent : (items.length ? Math.round(analyzedCount / items.length * 100) : 0)}
+                  size={120}
+                  status={taskStatus && taskStatus.active ? "active" : undefined}
+                />
                 <div style={{ textAlign: "center", marginTop: 8, color: "#666" }}>
-                  {analyzedCount} / {items.length} 已分析
+                  {taskStatus && taskStatus.total > 0 ? `${taskStatus.done} / ${taskStatus.total}` : `${analyzedCount} / ${items.length}`} 已分析
                 </div>
               </Card>
             </Col>

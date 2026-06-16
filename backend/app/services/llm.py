@@ -14,7 +14,7 @@ _ENV_DEFAULTS = {
 
 
 def _get_client() -> OpenAI:
-    kwargs: dict = {"base_url": f"{LITELLM_PROXY_URL}/v1"}
+    kwargs: dict = {"base_url": f"{LITELLM_PROXY_URL}/v1", "timeout": 60.0}
     if LITELLM_MASTER_KEY:
         kwargs["api_key"] = LITELLM_MASTER_KEY
     else:

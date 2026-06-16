@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Button,
   Spin,
@@ -13,9 +13,15 @@ import {
   Dropdown,
   Space,
 } from "antd";
-import { SyncOutlined, BulbOutlined, DownOutlined } from "@ant-design/icons";
+import { SyncOutlined, BulbOutlined, DownOutlined, LoadingOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { fetchRecommendations, refreshRecommendationPrices, triggerRecommendationGeneration } from "../../api/stock";
+import {
+  fetchRecommendationTaskStatus,
+  fetchRecommendations,
+  refreshRecommendationPrices,
+  triggerRecommendationGeneration,
+  type RecommendationTaskStatus,
+} from "../../api/stock";
 import StockLink from "../../components/StockLink";
 import type { RecommendationListResponse, RecommendationItem } from "../../types";
 
@@ -32,6 +38,11 @@ const riskColors: Record<string, string> = {
   medium: "orange",
   high: "red",
 };
+
+function statusStatusError(s: RecommendationTaskStatus): string | null {
+  if (s.status === "failed" && s.error) return s.error;
+  return null;
+}
 
 const columns = [
   {
@@ -139,44 +150,100 @@ export default function StockRecommendation() {
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
   const [phase, setPhase] = useState<string>("morning");
+  const [taskStatus, setTaskStatus] = useState<RecommendationTaskStatus | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback((tradeDate: string, targetPhase: string) => {
+    stopPolling();
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const [statusRes, dataRes] = await Promise.all([
+          fetchRecommendationTaskStatus(tradeDate, targetPhase),
+          fetchRecommendations(tradeDate, targetPhase),
+        ]);
+        setTaskStatus(statusRes);
+        setData(dataRes);
+        if (!statusRes.active) {
+          stopPolling();
+          setGenLoading(false);
+          const phaseLabels: Record<string, string> = { morning: "早盘", midday: "午盘", review: "收盘复盘", afternoon: "午后" };
+          if (statusRes.status === "completed") {
+            message.success(`${phaseLabels[targetPhase] || targetPhase}推荐生成完成（${statusRes.total} 条）`);
+          } else if (statusRes.status === "failed") {
+            message.error(statusRes.error || "推荐生成失败");
+            setError(statusStatusError(statusRes));
+          }
+        }
+      } catch {
+        // 临时错误忽略
+      }
+    }, 5000);
+  }, [stopPolling]);
 
   const loadData = useCallback(async (tradeDate?: string, p?: string) => {
     setLoading(true);
     setError(null);
+    const td = tradeDate || date;
+    const ph = p || phase;
     try {
-      const res = await fetchRecommendations(tradeDate || date, p || phase);
-      setData(res);
+      const [dataRes, statusRes] = await Promise.all([
+        fetchRecommendations(td, ph),
+        fetchRecommendationTaskStatus(td, ph).catch(() => null),
+      ]);
+      setData(dataRes);
+      if (statusRes) {
+        setTaskStatus(statusRes);
+        if (statusRes.active) {
+          setGenLoading(true);
+          startPolling(td, ph);
+        } else {
+          setGenLoading(false);
+        }
+      }
     } catch {
       setError("获取推荐数据失败");
     } finally {
       setLoading(false);
     }
-  }, [date, phase]);
+  }, [date, phase, startPolling]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    return () => stopPolling();
+  }, [loadData, stopPolling]);
 
   const handleGenerate = async (targetPhase: string) => {
     setGenLoading(true);
+    setError(null);
     try {
       const res = await triggerRecommendationGeneration(date, targetPhase);
       if (res.success) {
-        const phaseLabels: Record<string, string> = { morning: "早盘", midday: "午盘", review: "收盘复盘", afternoon: "午后" };
-        message.success(`${phaseLabels[targetPhase] || targetPhase}推荐生成 ${res.total} 条`);
+        message.success(res.message || "推荐任务已启动");
         setPhase(targetPhase);
-        loadData(undefined, targetPhase);
+        startPolling(date, targetPhase);
       } else {
-        message.error(res.message);
+        message.warning(res.message || "生成推荐失败");
+        // already_running 等情况，恢复轮询
+        setPhase(targetPhase);
+        startPolling(date, targetPhase);
       }
     } catch {
       message.error("生成推荐失败");
-    } finally {
       setGenLoading(false);
     }
   };
 
   const handlePhaseChange = (key: string) => {
+    stopPolling();
+    setTaskStatus(null);
+    setGenLoading(false);
     setPhase(key);
   };
 
@@ -196,6 +263,9 @@ export default function StockRecommendation() {
   const items = data?.items ?? [];
   const avgConf = items.length ? (items.reduce((s, i) => s + i.confidence, 0) / items.length * 100).toFixed(0) : "--";
   const riskDist = items.reduce<Record<string, number>>((acc, i) => { acc[i.risk_level] = (acc[i.risk_level] || 0) + 1; return acc; }, {});
+
+  const taskActive = taskStatus?.active === true;
+  const taskStage = taskStatus?.stage;
 
   const genMenuItems = [
     { key: "morning", label: "生成早盘推荐" },
@@ -232,7 +302,29 @@ export default function StockRecommendation() {
         </div>
       </div>
 
-      {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
+      {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} closable onClose={() => setError(null)} />}
+
+      {taskActive && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<LoadingOutlined />}
+          style={{ marginBottom: 16 }}
+          message={
+            <Space direction="vertical" size={4} style={{ width: "100%" }}>
+              <span>
+                正在生成 {taskStatus?.trade_date} 的{({ morning: "早盘", midday: "午盘", review: "收盘复盘", afternoon: "午后" } as Record<string, string>)[taskStatus?.phase || ""] || ""}推荐
+                {taskStage ? ` · 当前阶段：${taskStage}` : ""}
+                {taskStatus?.started_at ? ` · 启动于 ${dayjs(taskStatus.started_at).format("HH:mm:ss")}` : ""}
+              </span>
+              <Progress percent={taskStage ? 60 : 30} status="active" size="small" showInfo={false} />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                LLM 分析是最耗时的环节（约 1-3 分钟）。可切到其他页面或切换 Tab，任务在后台继续跑。
+              </Typography.Text>
+            </Space>
+          }
+        />
+      )}
 
       <Tabs
         activeKey={phase}

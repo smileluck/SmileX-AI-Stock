@@ -110,6 +110,33 @@ export async function triggerRecommendationGeneration(
   const { data } = await client.post("/stock/recommendation/generate", {
     trade_date: tradeDate || null,
     phase,
+  }, {
+    timeout: 30000,
+  });
+  return data;
+}
+
+export interface RecommendationTaskStatus {
+  active: boolean;
+  status: string;
+  trade_date: string;
+  phase: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  stage?: string | null;
+  total: number;
+  error?: string | null;
+}
+
+export async function fetchRecommendationTaskStatus(
+  tradeDate?: string,
+  phase: string = "review",
+): Promise<RecommendationTaskStatus> {
+  const params: Record<string, string> = { phase };
+  if (tradeDate) params.trade_date = tradeDate;
+  const { data } = await client.get("/stock/recommendation/task-status", {
+    params,
+    timeout: 10000,
   });
   return data;
 }

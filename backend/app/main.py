@@ -18,6 +18,7 @@ from app.api.limit_up_analysis import router as limit_up_analysis_router
 from app.api.stock_daily import router as stock_daily_router
 from app.api.stock_analysis import router as stock_analysis_router
 from app.api.watchlist import router as watchlist_router
+from app.api.tomorrow_strategy import router as tomorrow_strategy_router
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
@@ -30,6 +31,7 @@ from app.services.limit_up_analysis import snapshot_limit_up_analysis_data, gene
 from app.services.stock_daily import snapshot_stock_daily
 from app.services.fundamental import snapshot_fundamental_batch
 from app.services.capital_detail import snapshot_capital_detail
+from app.services.tomorrow_strategy import generate_tomorrow_strategy
 
 SYNC_INTERVAL_SECONDS = 300
 
@@ -161,6 +163,11 @@ async def lifespan(app: FastAPI):
         job_id="stock_capital_detail_snapshot",
         cron="40 16 * * 1-5",
     )
+    add_job(
+        lambda: generate_tomorrow_strategy(datetime.now().strftime("%Y-%m-%d")),
+        job_id="tomorrow_strategy_generation",
+        cron="40 15 * * 1-5",
+    )
     yield
     shutdown_scheduler()
 
@@ -189,3 +196,4 @@ app.include_router(limit_up_analysis_router, prefix="/api/v1")
 app.include_router(stock_daily_router, prefix="/api/v1")
 app.include_router(stock_analysis_router, prefix="/api/v1")
 app.include_router(watchlist_router, prefix="/api/v1")
+app.include_router(tomorrow_strategy_router, prefix="/api/v1")

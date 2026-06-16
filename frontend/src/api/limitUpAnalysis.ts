@@ -23,6 +23,28 @@ export async function triggerLimitUpAnalysisSnapshot(phase: string = "close") {
 export async function triggerLimitUpAnalysisGenerate(tradeDate?: string, phase: string = "close") {
   const { data } = await client.post("/limit-up/analysis/generate", null, {
     params: { trade_date: tradeDate || undefined, phase },
+    timeout: 30000,
+  });
+  return data;
+}
+
+export interface LimitUpAnalysisTaskStatus {
+  active: boolean;
+  total: number;
+  done: number;
+  percent: number;
+  phase: string;
+  started_at?: string;
+  error?: string;
+}
+
+export async function fetchLimitUpAnalysisTaskStatus(
+  tradeDate?: string,
+  phase: string = "close"
+): Promise<LimitUpAnalysisTaskStatus> {
+  const { data } = await client.get("/limit-up/analysis/task-status", {
+    params: { trade_date: tradeDate, phase },
+    timeout: 10000,
   });
   return data;
 }
