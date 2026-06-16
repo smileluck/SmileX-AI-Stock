@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +36,16 @@ from app.services.tomorrow_strategy import generate_tomorrow_strategy
 
 SYNC_INTERVAL_SECONDS = 300
 
+logger = logging.getLogger(__name__)
+
+
+def _safe_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except Exception:
+        logger.exception("safe_call %s failed", getattr(fn, "__name__", fn))
+        return None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -58,12 +69,12 @@ async def lifespan(app: FastAPI):
     add_job(
         lambda: snapshot_stock_daily(trigger="scheduled"),
         job_id="stock_daily_snapshot_midday",
-        cron="0 12 * * 1-5",
+        cron="1 12 * * 1-5",
     )
     add_job(
         lambda: snapshot_sector_data(trigger="scheduled"),
         job_id="sector_snapshot_midday",
-        cron="0 12 * * 1-5",
+        cron="2 12 * * 1-5",
     )
     add_job(
         lambda: snapshot_market_data(trigger="scheduled"),
@@ -73,7 +84,7 @@ async def lifespan(app: FastAPI):
     add_job(
         lambda: snapshot_stock_daily(trigger="scheduled"),
         job_id="stock_daily_snapshot_close",
-        cron="10 15 * * 1-5",
+        cron="12 15 * * 1-5",
     )
     add_job(
         lambda: snapshot_sector_data(trigger="scheduled"),
@@ -123,14 +134,8 @@ async def lifespan(app: FastAPI):
 
     def _review_rec_job():
         trade_date = datetime.now().strftime("%Y-%m-%d")
-        try:
-            update_morning_performance(trade_date)
-        except Exception:
-            pass
-        try:
-            update_recommendation_performance(trade_date, phase="midday")
-        except Exception:
-            pass
+        _safe_call(update_morning_performance, trade_date)
+        _safe_call(update_recommendation_performance, trade_date, phase="midday")
         return generate_recommendations(trade_date, phase="review")
 
     add_job(
@@ -141,7 +146,7 @@ async def lifespan(app: FastAPI):
     add_job(
         lambda: snapshot_limit_up_analysis_data(trigger="scheduled", phase="midday"),
         job_id="limit_up_analysis_snapshot_midday",
-        cron="0 12 * * 1-5",
+        cron="3 12 * * 1-5",
     )
     add_job(
         lambda: generate_limit_up_analysis(datetime.now().strftime("%Y-%m-%d"), phase="midday"),

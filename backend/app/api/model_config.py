@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.config import MODEL_ANALYSIS, MODEL_NEWS_SCORER, MODEL_CHAT
 from app.database import get_connection
-from app.services.llm import test_connection
+from app.services.llm import test_connection, invalidate_model_cache
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -77,6 +77,8 @@ def update_model_configs(req: UpdateModelConfigsRequest):
         conn.commit()
     finally:
         conn.close()
+    for c in req.configs:
+        invalidate_model_cache(c.function_key)
     return {"success": True}
 
 

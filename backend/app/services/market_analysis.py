@@ -3,7 +3,6 @@ import logging
 import re
 from datetime import datetime, timedelta
 
-import akshare as ak
 import pandas as pd
 
 from app.database import get_connection
@@ -191,15 +190,17 @@ def get_today_market_context(date_str: str) -> dict:
     friday_str = _get_friday_before_weekend(date_str)
     is_weekend = friday_str is not None
 
-    # Index data: use Friday's data on weekends
+    # Index data: use Friday's data on weekends. 同一份 df 同时用于当日/趋势，避免重复拉取。
     market_date = friday_str or date_str
     cn_data = []
+    index_dfs: dict[str, pd.DataFrame] = {}
     for code, name in CN_INDEX_NAMES.items():
         df = _fetch_index_daily_fallback(code)
         if df is None:
             logger.warning("All index sources failed for %s", code)
             continue
         df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        index_dfs[code] = df
         day = df[df["date"] == market_date]
         if day.empty:
             last5 = df.sort_values("date").tail(5)
@@ -259,15 +260,15 @@ def get_today_market_context(date_str: str) -> dict:
 
     trend_data = {}
     for code, name in CN_INDEX_NAMES.items():
-        df = _fetch_index_daily_fallback(code)
+        df = index_dfs.get(code)
         if df is None:
             continue
-        df["date"] = pd.to_datetime(df["date"])
-        df = df[df["date"] < market_date].sort_values("date").tail(5)
-        if not df.empty:
+        # df['date'] 已是字符串 YYYY-MM-DD，可直接字符串比较
+        recent = df[df["date"] < market_date].sort_values("date").tail(5)
+        if not recent.empty:
             trend_data[code] = {
                 "name": name,
-                "records": df[["date", "close", "volume"]].to_dict("records"),
+                "records": recent[["date", "close", "volume"]].to_dict("records"),
             }
 
     return {"cn_data": cn_data, "recent_news": recent_news, "scored_news": scored_news, "trend_data": trend_data, "date": date_str, "is_weekend": is_weekend, "friday": friday_str}
@@ -340,30 +341,29 @@ def build_analysis_prompt(context: dict, previous_prediction: dict | None = None
 def compare_prediction(today_date: str) -> dict | None:
     today_cn = []
     for code, name in CN_INDEX_NAMES.items():
+        df = _fetch_index_daily_fallback(code)
+        if df is None:
+            continue
         try:
-            df = ak.stock_zh_index_daily(symbol=code)
             df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
             day = df[df["date"] == today_date]
-            if not day.empty:
-                row = day.iloc[0]
-                prev_close = float(day.iloc[0]["open"]) if len(day) > 0 else 0
-                change_pct = 0
-                try:
-                    prev_df = df[df["date"] < today_date].sort_values("date").tail(1)
-                    if not prev_df.empty:
-                        prev_close = float(prev_df.iloc[0]["close"])
-                        change_pct = (float(row["close"]) - prev_close) / prev_close * 100
-                except Exception:
-                    pass
-                today_cn.append({
-                    "code": code, "name": name,
-                    "close": float(row["close"]),
-                    "open": float(row["open"]),
-                    "change_pct": round(change_pct, 2),
-                    "volume": float(row["volume"]),
-                })
+            if day.empty:
+                continue
+            row = day.iloc[0]
+            prev_df = df[df["date"] < today_date].sort_values("date").tail(1)
+            if prev_df.empty:
+                continue
+            prev_close = float(prev_df.iloc[0]["close"])
+            change_pct = (float(row["close"]) - prev_close) / prev_close * 100 if prev_close else 0
+            today_cn.append({
+                "code": code, "name": name,
+                "close": float(row["close"]),
+                "open": float(row["open"]),
+                "change_pct": round(change_pct, 2),
+                "volume": float(row["volume"]),
+            })
         except Exception:
-            pass
+            logger.exception("compare_prediction parse failed for %s", code)
 
     if not today_cn:
         logger.warning("无法获取 %s 的实际数据，跳过对比", today_date)
