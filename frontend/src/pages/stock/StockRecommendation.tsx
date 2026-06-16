@@ -173,7 +173,7 @@ export default function StockRecommendation() {
         if (!statusRes.active) {
           stopPolling();
           setGenLoading(false);
-          const phaseLabels: Record<string, string> = { morning: "早盘", midday: "午盘", review: "收盘复盘", afternoon: "午后" };
+          const phaseLabels: Record<string, string> = { morning: "早盘", midday: "午盘", afternoon: "尾盘", review: "收盘复盘" };
           if (statusRes.status === "completed") {
             message.success(`${phaseLabels[targetPhase] || targetPhase}推荐生成完成（${statusRes.total} 条）`);
           } else if (statusRes.status === "failed") {
@@ -270,6 +270,7 @@ export default function StockRecommendation() {
   const genMenuItems = [
     { key: "morning", label: "生成早盘推荐" },
     { key: "midday", label: "生成午盘推荐" },
+    { key: "afternoon", label: "生成尾盘推荐" },
     { key: "review", label: "生成收盘复盘" },
   ];
 
@@ -279,7 +280,7 @@ export default function StockRecommendation() {
         <Space>
           <Typography.Title level={4} style={{ margin: 0 }}>AI 个股推荐</Typography.Title>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            自动生成：早盘 9:26 / 午盘 11:25 / 收盘复盘 15:35
+            自动生成：早盘 9:26 / 午盘 11:25 / 尾盘 14:45 / 收盘复盘 15:35
           </Typography.Text>
         </Space>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -313,7 +314,7 @@ export default function StockRecommendation() {
           message={
             <Space direction="vertical" size={4} style={{ width: "100%" }}>
               <span>
-                正在生成 {taskStatus?.trade_date} 的{({ morning: "早盘", midday: "午盘", review: "收盘复盘", afternoon: "午后" } as Record<string, string>)[taskStatus?.phase || ""] || ""}推荐
+                正在生成 {taskStatus?.trade_date} 的{({ morning: "早盘", midday: "午盘", afternoon: "尾盘", review: "收盘复盘" } as Record<string, string>)[taskStatus?.phase || ""] || ""}推荐
                 {taskStage ? ` · 当前阶段：${taskStage}` : ""}
                 {taskStatus?.started_at ? ` · 启动于 ${dayjs(taskStatus.started_at).format("HH:mm:ss")}` : ""}
               </span>
@@ -332,6 +333,7 @@ export default function StockRecommendation() {
         items={[
           { key: "morning", label: "早盘推荐" },
           { key: "midday", label: "午盘推荐" },
+          { key: "afternoon", label: "尾盘推荐" },
           { key: "review", label: "收盘复盘" },
         ]}
       />

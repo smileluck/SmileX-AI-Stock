@@ -8,6 +8,8 @@ from datetime import datetime
 import akshare as ak
 import requests
 from lxml import etree
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from app.database import get_connection
 from app.services import llm
@@ -124,6 +126,54 @@ def _fetch_zt_pool_from_em(date: str) -> list[dict]:
         return items
     except Exception:
         logger.warning("East Money fallback fetch limit-up failed", exc_info=True)
+        return []
+
+
+def _fetch_main_fund_flow_rank(top_n: int = 30) -> list[dict]:
+    """东方财富 clist API 按主力净流入(f62)降序取 top_n 只个股。
+
+    返回字段：code/name/current/change_pct/amount/main_net_inflow/
+              main_inflow_pct/large_net_inflow/turnover_rate。
+    """
+    session = requests.Session()
+    retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[502, 503, 504])
+    session.mount("http://", HTTPAdapter(max_retries=retry))
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    try:
+        r = session.get(
+            "http://push2.eastmoney.com/api/qt/clist/get",
+            params={
+                "pn": 1, "pz": top_n, "po": 1, "np": 1,
+                "fltt": 2, "invt": 2,
+                "fid": "f62",  # 主力净流入降序
+                "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",  # 沪深京 A 股
+                "fields": "f12,f14,f2,f3,f6,f62,f184,f66,f72,f8",
+            },
+            timeout=15,
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"},
+        )
+        r.raise_for_status()
+        diff = (r.json().get("data") or {}).get("diff") or []
+        items = []
+        for it in diff:
+            code = str(it.get("f12", ""))
+            if not code:
+                continue
+            items.append({
+                "code": code,
+                "name": str(it.get("f14", "")),
+                "current": _parse_float(it.get("f2")),
+                "change_pct": _round2(_parse_float(it.get("f3"))),
+                "amount": _parse_float(it.get("f6")),
+                "main_net_inflow": _parse_float(it.get("f62")),
+                "main_inflow_pct": _round2(_parse_float(it.get("f184"))),
+                "large_net_inflow": _parse_float(it.get("f72")),
+                "turnover_rate": _round2(_parse_float(it.get("f8"))),
+            })
+        logger.info("主力净流入排行抓取 %d 只", len(items))
+        return items
+    except Exception:
+        logger.warning("主力净流入排行抓取失败", exc_info=True)
         return []
 
 
@@ -1100,6 +1150,53 @@ def _preselect_midday_candidates(trade_date: str) -> list[dict]:
     return list(candidates.values())[:25]
 
 
+def _preselect_afternoon_candidates(trade_date: str) -> list[dict]:
+    """尾盘候选股：主力净流入 TOP30 过滤掉涨停/ST/非主板/负流入，留 ≤20 只。"""
+    rank = _fetch_main_fund_flow_rank(top_n=30)
+    if not rank:
+        logger.warning("尾盘候选股预筛：主力净流入排行抓取失败，无候选")
+        return []
+
+    try:
+        zt_codes = {it["code"] for it in fetch_limit_up_stocks(trade_date)}
+    except Exception:
+        logger.warning("尾盘候选股预筛：今日涨停池获取失败，仅按涨幅过滤", exc_info=True)
+        zt_codes = set()
+
+    candidates: list[dict] = []
+    for it in rank:
+        code = it["code"]
+        name = it.get("name", "")
+        if not _is_main_board(code):
+            continue
+        if "ST" in name.upper():
+            continue
+        pct = it.get("change_pct")
+        if pct is not None and pct >= 9.8:
+            continue
+        if code in zt_codes:
+            continue
+        if (it.get("main_net_inflow") or 0) <= 0:
+            continue
+        candidates.append({
+            "code": code,
+            "name": name,
+            "source": "主力净流入TOP",
+            "current": it.get("current"),
+            "change_pct": pct,
+            "amount": it.get("amount"),
+            "main_net_inflow": it.get("main_net_inflow"),
+            "main_inflow_pct": it.get("main_inflow_pct"),
+            "large_net_inflow": it.get("large_net_inflow"),
+            "turnover_rate": it.get("turnover_rate"),
+        })
+        if len(candidates) >= 20:
+            break
+
+    logger.info("尾盘候选股预筛：%d 只（主力净流入 TOP30 过滤后）", len(candidates))
+    return candidates
+
+
 def _fetch_morning_session_data(candidates: list[dict]) -> list[dict]:
     """Fetch morning session real-time data for candidates via Sina HQ API."""
     if not candidates:
@@ -1178,6 +1275,101 @@ def _fetch_morning_session_data(candidates: list[dict]) -> list[dict]:
     return results
 
 
+def _fetch_afternoon_session_data(candidates: list[dict]) -> list[dict]:
+    """Sina HQ 补全 open/high/low/振幅/量，资金流字段从候选股预筛结果带过来。"""
+    if not candidates:
+        return []
+    results: list[dict] = []
+    code_to_cand = {c["code"]: c for c in candidates}
+    codes = ",".join(_code_to_sina(c["code"]) for c in candidates)
+
+    try:
+        r = requests.get(
+            f"https://hq.sinajs.cn/list={codes}",
+            headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        r.raise_for_status()
+    except Exception:
+        logger.warning("尾盘候选股行情获取失败", exc_info=True)
+        return []
+
+    sina_map: dict[str, dict] = {}
+    for line in r.text.strip().split("\n"):
+        m = _SINA_HQ_PATTERN.match(line.strip())
+        if not m:
+            continue
+        parts = m.group(2).split(",")
+        if len(parts) < 10:
+            continue
+        code = m.group(1)[2:]
+        sina_map[code] = {
+            "open": _parse_float(parts[1]),
+            "prev_close": _parse_float(parts[2]),
+            "current": _parse_float(parts[3]),
+            "high": _parse_float(parts[4]),
+            "low": _parse_float(parts[5]),
+            "volume": _parse_float(parts[8]),
+            "amount": _parse_float(parts[9]),
+        }
+
+    for cand in candidates:
+        code = cand["code"]
+        sd = sina_map.get(code)
+        if not sd:
+            continue
+        current = sd["current"]
+        prev_close = sd["prev_close"]
+        open_price = sd["open"]
+        high = sd["high"]
+        low = sd["low"]
+        change_pct = _round2(((current or 0) - (prev_close or 0)) / prev_close * 100) if prev_close else cand.get("change_pct")
+        amplitude = _round2(((high or 0) - (low or 0)) / prev_close * 100) if prev_close else None
+        main_net = cand.get("main_net_inflow") or 0
+        main_pct = cand.get("main_inflow_pct")
+        large_net = cand.get("large_net_inflow") or 0
+
+        signals: list[str] = []
+        if main_pct is not None:
+            signals.append(f"主力净流入{main_pct}%")
+        if change_pct is not None:
+            if 2 <= change_pct <= 7:
+                signals.append("尾盘强势")
+            elif change_pct > 7:
+                signals.append("涨幅偏高")
+            elif change_pct < 0:
+                signals.append("回调中")
+        if amplitude is not None and amplitude > 8:
+            signals.append("振幅较大")
+        if open_price and current and prev_close:
+            if current > open_price and current > prev_close:
+                signals.append("阳线")
+            elif current < open_price:
+                signals.append("阴线")
+
+        results.append({
+            "code": code,
+            "name": cand["name"],
+            "source": cand["source"],
+            "current": current,
+            "open": open_price,
+            "prev_close": prev_close,
+            "high": high,
+            "low": low,
+            "change_pct": change_pct,
+            "amplitude": amplitude,
+            "volume": sd["volume"],
+            "amount": sd["amount"] or cand.get("amount"),
+            "main_net_inflow": main_net,
+            "main_inflow_pct": main_pct,
+            "large_net_inflow": large_net,
+            "turnover_rate": cand.get("turnover_rate"),
+            "signals": signals,
+        })
+
+    return results
+
+
 def _format_midday_context(midday_data: list[dict]) -> str:
     """Format morning session data as context text for AI midday recommendation."""
     if not midday_data:
@@ -1198,6 +1390,38 @@ def _format_midday_context(midday_data: list[dict]) -> str:
             f"开{d['open']} 高{d['high']} 低{d['low']} "
             f"成交额{amt:.2f}亿 振幅{d['amplitude']}% "
             f"来源:{d['source']}{signal_str}"
+        )
+
+    return "\n".join(lines)
+
+
+def _format_afternoon_context(afternoon_data: list[dict]) -> str:
+    """Format afternoon (尾盘) data as context text for AI recommendation."""
+    if not afternoon_data:
+        return ""
+
+    sorted_data = sorted(afternoon_data, key=lambda x: x.get("main_net_inflow") or 0, reverse=True)
+
+    lines = [f"=== 尾盘资金动向分析 ({len(sorted_data)}只候选) ==="]
+    lines.append("说明: 基于14:45左右尾盘数据，已过滤涨停股，候选股均为非涨停+主力净流入为正+沪深主板")
+
+    for d in sorted_data:
+        pct_str = f"{d['change_pct']:+.2f}" if d["change_pct"] is not None else "N/A"
+        amt = (d["amount"] or 0) / 1e8
+        main_net = (d.get("main_net_inflow") or 0) / 1e8
+        large_net = (d.get("large_net_inflow") or 0) / 1e8
+        main_pct = d.get("main_inflow_pct")
+        main_pct_str = f"{main_pct}" if main_pct is not None else "N/A"
+        turnover = d.get("turnover_rate")
+        turnover_str = f"{turnover}" if turnover is not None else "N/A"
+        signal_str = f" 信号:[{','.join(d['signals'])}]" if d.get("signals") else ""
+
+        lines.append(
+            f"  {d['name']}({d['code']}) 涨幅{pct_str}% 现价{d['current']} "
+            f"开{d['open']} 高{d['high']} 低{d['low']} "
+            f"成交额{amt:.2f}亿 振幅{d['amplitude']}% "
+            f"主力净流{main_net:.2f}亿({main_pct_str}%) 大单{large_net:.2f}亿 "
+            f"换手{turnover_str}% 来源:{d['source']}{signal_str}"
         )
 
     return "\n".join(lines)
@@ -1314,7 +1538,46 @@ _REC_MIDDAY_SYSTEM_PROMPT = """\
 """
 
 
-def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: list[dict] | None = None, midday_data: list[dict] | None = None) -> str:
+_REC_AFTERNOON_SYSTEM_PROMPT = """\
+你是一位资深A股投资顾问，负责基于尾盘资金动向为用户挑选明日有望高开的个股。
+
+以下是 14:45 左右的尾盘资金流向数据（候选股均已过滤掉今日涨停股、ST股、非主板股，且主力净流入为正）。请推荐 5-8 只明日有望高开或继续走强的个股。要求：
+
+1. 每只股票必须包含以下字段，以 JSON 数组格式输出：
+   - code: 股票代码（如 "600519"）
+   - name: 股票名称
+   - reason: 推荐理由（80-120字，重点结合主力资金动向、尾盘走势、板块联动分析明日高开概率）
+   - strategy: 操作策略（如 "尾盘低吸"、"尾盘追涨"、"明日高开跟进"、"强势延续持有"）
+   - current_price: 当前价格（根据尾盘行情数据填写）
+   - buy_low: 建议买入区间下限（基于尾盘价设定）
+   - buy_high: 建议买入区间上限
+   - target_price: 目标价（明日或短期目标）
+   - stop_loss_price: 止损价
+   - take_profit_price: 止盈价
+   - risk_level: 风险等级 "low"/"medium"/"high"
+   - confidence: 信心度 0-1 之间的小数
+   - sector: 所属行业/板块
+   - score: 综合评分 1-10
+
+2. 推荐原则：
+   - **核心信号：主力净流入金额大且占比高（>5%）** 说明资金真金白银介入，明日高开概率大
+   - 尾盘涨幅 0-7% 区间最理想：既反映当日强势，又留有明日上涨空间
+   - 涨幅已经接近 9% 的非涨停股需要谨慎（可能已透支，追高风险大），优先选涨幅适中的
+   - 量价配合：成交额放大 + 主力净流入同向 + 阳线 + 换手率合理（3%-15%）
+   - 板块联动：优先选择所在板块整体强势的龙头，明日板块继续发酵时龙头最先受益
+   - 大单/超大单净流入为正且金额较大，是机构资金介入的重要信号
+   - 振幅较大（>8%）但最终收阳线的，说明尾盘抢筹明显
+   - 不推荐ST、*ST股票
+   - 只推荐沪深主板股票（代码以60或00开头），禁止推荐科创板(688)、创业板(30)、北交所(8/4开头）
+   - 买入区间应基于尾盘价合理设定：buy_low 可略低于尾盘价（-1%~-2%），buy_high 可略高于尾盘价（+1%~+2%）
+   - 止损价一般设在买入区间下限下方 2-5%
+   - 止盈价和目标价应体现明日高开的合理预期（如目标价 = 尾盘价 × 1.03~1.08）
+
+3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
+"""
+
+
+def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: list[dict] | None = None, midday_data: list[dict] | None = None, afternoon_data: list[dict] | None = None) -> str:
     """Collect context data for recommendation generation."""
     parts = []
 
@@ -1333,6 +1596,12 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
         midday_text = _format_midday_context(midday_data)
         if midday_text:
             parts.append(midday_text)
+
+    # Afternoon (尾盘) fund flow analysis
+    if phase == "afternoon" and afternoon_data:
+        afternoon_text = _format_afternoon_context(afternoon_data)
+        if afternoon_text:
+            parts.append(afternoon_text)
 
     # Limit-up data
     conn = get_connection()
@@ -1358,6 +1627,7 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
         elif phase == "midday":
             label = "今日上午涨停股"
         else:
+            # afternoon / review / 其它都按"今日涨停股"展示
             label = "今日涨停股"
         lines = [f"=== {label} ({len(rows)}只) ==="]
         for r in rows:
@@ -1379,7 +1649,7 @@ def _get_rec_context(trade_date: str, phase: str = "afternoon", auction_data: li
             "SELECT name, change_pct, main_net_inflow, leading_stock FROM sector_snapshot_item WHERE trade_date = ? AND sector_type = 'industry' ORDER BY change_pct DESC LIMIT 10",
             (sec_date,),
         ).fetchall()
-        if not rows and phase == "midday":
+        if not rows and phase in ("midday", "afternoon"):
             prev_row = conn.execute(
                 "SELECT MAX(trade_date) as d FROM sector_snapshot_item WHERE trade_date < ?",
                 (trade_date,),
@@ -1550,6 +1820,7 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
     # Morning phase: preselect candidates and fetch auction data
     auction_data: list[dict] | None = None
     midday_data: list[dict] | None = None
+    afternoon_data: list[dict] | None = None
 
     if phase == "morning":
         candidates = _preselect_morning_candidates(trade_date)
@@ -1565,6 +1836,13 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
             midday_data = _fetch_morning_session_data(candidates)
             logger.info("上午行情数据获取完成: %d 只成功", len(midday_data or []))
 
+    elif phase == "afternoon":
+        candidates = _preselect_afternoon_candidates(trade_date)
+        if candidates:
+            logger.info("尾盘候选股: %d 只，开始获取尾盘行情数据", len(candidates))
+            afternoon_data = _fetch_afternoon_session_data(candidates)
+            logger.info("尾盘行情数据获取完成: %d 只成功", len(afternoon_data or []))
+
     elif phase == "review":
         # Update actual returns for morning and midday before generating review
         try:
@@ -1576,12 +1854,19 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
         except Exception:
             logger.warning("午盘收益更新失败", exc_info=True)
 
-    context = _get_rec_context(trade_date, phase, auction_data=auction_data, midday_data=midday_data)
+    context = _get_rec_context(
+        trade_date, phase,
+        auction_data=auction_data,
+        midday_data=midday_data,
+        afternoon_data=afternoon_data,
+    )
 
     if phase == "morning":
         system_prompt = _REC_MORNING_SYSTEM_PROMPT
     elif phase == "midday":
         system_prompt = _REC_MIDDAY_SYSTEM_PROMPT
+    elif phase == "afternoon":
+        system_prompt = _REC_AFTERNOON_SYSTEM_PROMPT
     else:
         system_prompt = _REC_SYSTEM_PROMPT
     messages = [
@@ -1613,7 +1898,7 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
         recs = unique_recs
 
     # Override LLM-generated current_price with real-time prices
-    if phase in ("morning", "midday", "review") and recs:
+    if phase in ("morning", "midday", "afternoon", "review") and recs:
         codes = [r.get("code", "") for r in recs if r.get("code")]
         if codes:
             sina_codes = ",".join(_code_to_sina(c) for c in codes)
@@ -1758,12 +2043,14 @@ def get_recommendation_task_status(trade_date: str, phase: str) -> dict:
 def _recommendation_worker(trade_date: str, phase: str) -> None:
     """后台线程：跑完整推荐流程，更新任务状态。"""
     key = (trade_date, phase)
-    phase_label = {"morning": "早盘", "midday": "午盘", "review": "收盘复盘", "afternoon": "午后"}.get(phase, phase)
+    phase_label = {"morning": "早盘", "midday": "午盘", "review": "收盘复盘", "afternoon": "尾盘"}.get(phase, phase)
     try:
         if phase == "morning":
             _set_rec_stage(key, "候选股预筛+竞价数据")
         elif phase == "midday":
             _set_rec_stage(key, "候选股预筛+上午行情")
+        elif phase == "afternoon":
+            _set_rec_stage(key, "候选股预筛+尾盘资金流")
         elif phase == "review":
             _set_rec_stage(key, "更新早盘/午盘实际收益")
         else:

@@ -115,6 +115,11 @@ async def lifespan(app: FastAPI):
         job_id="stock_recommendation_midday",
         cron="25 11 * * 1-5",
     )
+    add_job(
+        lambda: generate_recommendations(phase="afternoon"),
+        job_id="stock_recommendation_afternoon",
+        cron="45 14 * * 1-5",
+    )
 
     def _review_rec_job():
         trade_date = datetime.now().strftime("%Y-%m-%d")
