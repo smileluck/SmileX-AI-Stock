@@ -100,13 +100,7 @@ _DEFAULT_SYSTEM_PROMPT = """\
 
 
 def _parse_prediction_json(text: str) -> dict:
-    m = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
-    candidate = m.group(1).strip() if m else text
-    try:
-        data = json.loads(candidate)
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, TypeError):
-        return {}
+    return llm.parse_json_response(text, expect="object")
 
 
 def _split_analysis_text(text: str) -> tuple[str, str]:
@@ -129,8 +123,10 @@ def _row_to_dict(row) -> dict:
     return d
 
 
-def _recent_daily_rows(code: str, trade_date: str, limit: int = 80) -> list[dict]:
-    conn = get_connection()
+def _recent_daily_rows(code: str, trade_date: str, limit: int = 80, conn=None) -> list[dict]:
+    own = conn is None
+    if own:
+        conn = get_connection()
     try:
         rows = conn.execute(
             """SELECT * FROM stock_daily
@@ -139,12 +135,15 @@ def _recent_daily_rows(code: str, trade_date: str, limit: int = 80) -> list[dict
             (code, trade_date, limit),
         ).fetchall()
     finally:
-        conn.close()
+        if own:
+            conn.close()
     return [dict(r) for r in rows]
 
 
-def _recent_recommendations(code: str, trade_date: str, limit: int = 5) -> list[dict]:
-    conn = get_connection()
+def _recent_recommendations(code: str, trade_date: str, limit: int = 5, conn=None) -> list[dict]:
+    own = conn is None
+    if own:
+        conn = get_connection()
     try:
         rows = conn.execute(
             """SELECT trade_date, phase, reason, strategy, target_price, stop_loss_price,
@@ -155,12 +154,15 @@ def _recent_recommendations(code: str, trade_date: str, limit: int = 5) -> list[
             (code, trade_date, limit),
         ).fetchall()
     finally:
-        conn.close()
+        if own:
+            conn.close()
     return [dict(r) for r in rows]
 
 
-def _recent_limit_up_analysis(code: str, trade_date: str, limit: int = 5) -> list[dict]:
-    conn = get_connection()
+def _recent_limit_up_analysis(code: str, trade_date: str, limit: int = 5, conn=None) -> list[dict]:
+    own = conn is None
+    if own:
+        conn = get_connection()
     try:
         rows = conn.execute(
             """SELECT trade_date, stock_type, phase, price, change_pct, sector, board,
@@ -171,14 +173,17 @@ def _recent_limit_up_analysis(code: str, trade_date: str, limit: int = 5) -> lis
             (code, trade_date, limit),
         ).fetchall()
     finally:
-        conn.close()
+        if own:
+            conn.close()
     return [dict(r) for r in rows]
 
 
-def _recent_news(code: str, name: str, limit: int = 10) -> list[dict]:
+def _recent_news(code: str, name: str, limit: int = 10, conn=None) -> list[dict]:
     keyword = f"%{code}%"
     name_keyword = f"%{name}%" if name else keyword
-    conn = get_connection()
+    own = conn is None
+    if own:
+        conn = get_connection()
     try:
         rows = conn.execute(
             """SELECT title, source, url, publish_time
@@ -188,7 +193,8 @@ def _recent_news(code: str, name: str, limit: int = 10) -> list[dict]:
             (keyword, keyword, name_keyword, name_keyword, limit),
         ).fetchall()
     finally:
-        conn.close()
+        if own:
+            conn.close()
     return [dict(r) for r in rows]
 
 
@@ -197,10 +203,14 @@ def _build_context(stock_data: dict) -> tuple[dict, list[dict]]:
     trade_date = stock_data["trade_date"]
     name = stock_data.get("name", "")
     concepts = _fetch_one_stock_concepts(code)
-    recent_daily = _recent_daily_rows(code, trade_date)
-    recommendations = _recent_recommendations(code, trade_date)
-    limit_up_records = _recent_limit_up_analysis(code, trade_date)
-    news = _recent_news(code, name)
+    conn = get_connection()
+    try:
+        recent_daily = _recent_daily_rows(code, trade_date, conn=conn)
+        recommendations = _recent_recommendations(code, trade_date, conn=conn)
+        limit_up_records = _recent_limit_up_analysis(code, trade_date, conn=conn)
+        news = _recent_news(code, name, conn=conn)
+    finally:
+        conn.close()
     technical_indicators = compute_indicators(recent_daily)
     fundamental = get_latest_fundamental(code)
     capital_detail = get_latest_capital_detail(code, trade_date)

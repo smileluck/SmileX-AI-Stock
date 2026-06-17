@@ -1,4 +1,6 @@
+import json
 import logging
+import re
 import time
 
 from openai import OpenAI
@@ -96,3 +98,73 @@ def test_connection() -> dict:
         return {"success": True, "models": model_ids}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+_FENCED_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
+
+
+def parse_json_response(text: str, expect: str = "any"):
+    """从 LLM 输出抽取 JSON。
+
+    支持三种形态：
+      1. ```json ... ``` 围栏（任意大小写、可选 json 标记）
+      2. 裸 JSON（``[...]``、``{...}``）
+      3. 兜底：截取第一个 ``[`` / ``{`` 到最后一个 ``]`` / ``}``
+
+    expect:
+      - "object": 仅接受 dict，否则返回 ``{}``
+      - "array":  仅接受 list，否则返回 ``[]``
+      - "any" (默认): 解析成功则原样返回，失败时按 default 推断（``{}``）
+    """
+    if not text or not isinstance(text, str):
+        return [] if expect == "array" else {}
+
+    candidates: list[str] = []
+    for m in _FENCED_RE.finditer(text):
+        candidates.append(m.group(1).strip())
+    candidates.append(text.strip())
+
+    if expect == "array":
+        for c in candidates:
+            try:
+                data = json.loads(c)
+                if isinstance(data, list):
+                    return data
+            except (json.JSONDecodeError, TypeError):
+                continue
+        start = text.find("[")
+        end = text.rfind("]")
+        if 0 <= start < end:
+            try:
+                data = json.loads(text[start:end + 1])
+                if isinstance(data, list):
+                    return data
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return []
+
+    if expect == "object":
+        for c in candidates:
+            try:
+                data = json.loads(c)
+                if isinstance(data, dict):
+                    return data
+            except (json.JSONDecodeError, TypeError):
+                continue
+        start = text.find("{")
+        end = text.rfind("}")
+        if 0 <= start < end:
+            try:
+                data = json.loads(text[start:end + 1])
+                if isinstance(data, dict):
+                    return data
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return {}
+
+    for c in candidates:
+        try:
+            return json.loads(c)
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return {}

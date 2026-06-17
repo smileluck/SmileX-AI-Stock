@@ -66,12 +66,7 @@ _REVIEW_SYSTEM_PROMPT = """\
 
 
 def _parse_prediction_json(text: str) -> dict:
-    m = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    candidate = m.group(1) if m else text
-    try:
-        return json.loads(candidate)
-    except (json.JSONDecodeError, TypeError):
-        return {}
+    return llm.parse_json_response(text, expect="object")
 
 
 def _row_to_dict(row) -> dict:
@@ -236,22 +231,9 @@ def _score_sector_news(news_list: list[dict], sector_type: str, sector_names: li
             {**news_list[i], "impact_score": 5, "impact_category": "其他"}
             for i in range(min(len(news_list), 20))
         ]
-    results = None
-    if resp.startswith("[") or resp.startswith("{"):
-        try:
-            parsed = json.loads(resp)
-            results = parsed if isinstance(parsed, list) else None
-        except (json.JSONDecodeError, TypeError):
-            pass
-    if not results:
-        m = re.search(r"```json\s*(.*?)\s*```", resp, re.DOTALL)
-        if m:
-            try:
-                results = json.loads(m.group(1))
-            except (json.JSONDecodeError, TypeError):
-                pass
+    results = llm.parse_json_response(resp, expect="array")
 
-    if not results or not isinstance(results, list):
+    if not results:
         return [
             {**news_list[i], "impact_score": 5, "impact_category": "其他"}
             for i in range(min(len(news_list), 20))

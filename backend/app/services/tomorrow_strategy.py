@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 import threading
 from datetime import datetime
 
@@ -279,33 +278,8 @@ def _build_prompt(
 
 
 def _extract_json_block(raw: str) -> dict:
-    """从 LLM 文本中抽取 JSON 对象，兼容 ```json 代码块和裸 JSON。"""
-    if not raw:
-        return {}
-
-    # 优先匹配 ```json ... ```
-    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(1))
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    # 直接尝试整段
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    # 兜底：找第一个 { 到最后一个 }
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start >= 0 and end > start:
-        try:
-            return json.loads(raw[start : end + 1])
-        except (json.JSONDecodeError, TypeError):
-            pass
-    return {}
+    """从 LLM 文本中抽取 JSON 对象，兼容 ```json 代码块、裸 JSON 与大括号兜底。"""
+    return llm.parse_json_response(raw, expect="object")
 
 
 def _enrich_sectors_with_news(sectors: list[dict], trade_date: str) -> list[dict]:

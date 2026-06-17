@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 import threading
 from datetime import datetime
 
@@ -272,16 +271,7 @@ def _build_batch_context(batch: list[dict], trade_date: str, phase_label: str, s
 
 def _parse_analysis_json(text: str) -> list[dict]:
     """Extract JSON array from LLM response."""
-    m = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
-    if m:
-        text = m.group(1).strip()
-    try:
-        data = json.loads(text)
-        if isinstance(data, list):
-            return data
-    except json.JSONDecodeError:
-        pass
-    return []
+    return llm.parse_json_response(text, expect="array")
 
 
 # ---------------------------------------------------------------------------

@@ -1152,7 +1152,13 @@ def _preselect_midday_candidates(trade_date: str) -> list[dict]:
 
 def _preselect_afternoon_candidates(trade_date: str) -> list[dict]:
     """尾盘候选股：主力净流入 TOP30 过滤掉涨停/ST/非主板/负流入，留 ≤20 只。"""
-    rank = _fetch_main_fund_flow_rank(top_n=30)
+    from app.services.constants import (
+        AFTERNOON_RANK_TOP_N,
+        AFTERNOON_CANDIDATE_MAX,
+        AFTERNOON_CHANGE_PCT_MIN,
+        AFTERNOON_CHANGE_PCT_MAX,
+    )
+    rank = _fetch_main_fund_flow_rank(top_n=AFTERNOON_RANK_TOP_N)
     if not rank:
         logger.warning("尾盘候选股预筛：主力净流入排行抓取失败，无候选")
         return []
@@ -1172,7 +1178,7 @@ def _preselect_afternoon_candidates(trade_date: str) -> list[dict]:
         if "ST" in name.upper():
             continue
         pct = it.get("change_pct")
-        if pct is not None and (pct < -2 or pct > 7):
+        if pct is not None and (pct < AFTERNOON_CHANGE_PCT_MIN or pct > AFTERNOON_CHANGE_PCT_MAX):
             continue
         if code in zt_codes:
             continue
@@ -1190,10 +1196,10 @@ def _preselect_afternoon_candidates(trade_date: str) -> list[dict]:
             "large_net_inflow": it.get("large_net_inflow"),
             "turnover_rate": it.get("turnover_rate"),
         })
-        if len(candidates) >= 20:
+        if len(candidates) >= AFTERNOON_CANDIDATE_MAX:
             break
 
-    logger.info("尾盘候选股预筛：%d 只（主力净流入 TOP30 过滤后）", len(candidates))
+    logger.info("尾盘候选股预筛：%d 只（主力净流入 TOP%d 过滤后）", len(candidates), AFTERNOON_RANK_TOP_N)
     return candidates
 
 
@@ -1794,16 +1800,7 @@ def _get_review_context(trade_date: str) -> str:
 
 def _parse_recommendation_json(text: str) -> list[dict]:
     """Extract JSON array from LLM response."""
-    m = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
-    if m:
-        text = m.group(1).strip()
-    try:
-        data = json.loads(text)
-        if isinstance(data, list):
-            return data
-    except json.JSONDecodeError:
-        pass
-    return []
+    return llm.parse_json_response(text, expect="array")
 
 
 def _run_recommendations_sync(trade_date: str, phase: str) -> dict:

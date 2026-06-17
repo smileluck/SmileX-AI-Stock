@@ -8,6 +8,12 @@ import pandas as pd
 from app.database import get_connection
 from app.services.market import CN_INDEX_NAMES, _fetch_index_daily_fallback
 from app.services import llm
+from app.services.constants import (
+    NEWS_TIME_DECAY_PER_HOUR,
+    NEWS_TIME_WEIGHT_FLOOR,
+    NEWS_FILTER_TARGET_COUNT,
+    NEWS_DAILY_FETCH_LIMIT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +55,7 @@ _REVIEW_SYSTEM_PROMPT = """\
 
 
 def _parse_prediction_json(text: str) -> dict:
-    m = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    candidate = m.group(1) if m else text
-    try:
-        return json.loads(candidate)
-    except (json.JSONDecodeError, TypeError):
-        return {}
+    return llm.parse_json_response(text, expect="object")
 
 
 def _row_to_dict(row) -> dict:
@@ -95,14 +96,13 @@ def _compute_time_weight(publish_time: str | None, reference_date: datetime) -> 
     if hours_diff < 0:
         # Future/upcoming event — boost
         return 1.0
-    # Decay: 0h → 1.0, 24h → 0.85, 48h → 0.70, ..., floor at 0.3
-    weight = max(0.3, 1.0 - hours_diff * 0.006)
+    weight = max(NEWS_TIME_WEIGHT_FLOOR, 1.0 - hours_diff * NEWS_TIME_DECAY_PER_HOUR)
     return round(weight, 2)
 
 
 def _filter_news_by_impact(
     news_list: list[dict],
-    target_count: int = 30,
+    target_count: int = NEWS_FILTER_TARGET_COUNT,
     reference_date: datetime | None = None,
     is_weekend: bool = False,
 ) -> list[dict]:
@@ -150,14 +150,7 @@ def _filter_news_by_impact(
         {"role": "user", "content": numbered},
     ]
     resp = llm.score_news(prompt).strip()
-    results = _parse_prediction_json(resp) if resp.startswith("[") or resp.startswith("{") else None
-    if not results:
-        m = re.search(r"```json\s*(.*?)\s*```", resp, re.DOTALL)
-        if m:
-            try:
-                results = json.loads(m.group(1))
-            except (json.JSONDecodeError, TypeError):
-                pass
+    results = llm.parse_json_response(resp, expect="array")
 
     if not results or not isinstance(results, list):
         # Fallback: sort by time weight only
@@ -231,28 +224,29 @@ def get_today_market_context(date_str: str) -> dict:
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT title, source, url, publish_time FROM news WHERE date(publish_time) = ? ORDER BY publish_time DESC LIMIT 30",
-                (date_str,),
+                "SELECT title, source, url, publish_time FROM news WHERE date(publish_time) = ? ORDER BY publish_time DESC LIMIT ?",
+                (date_str, NEWS_DAILY_FETCH_LIMIT),
             ).fetchall()
         recent_news = [{"title": r["title"], "source": r["source"], "url": r["url"], "publish_time": r["publish_time"]} for r in rows]
     finally:
         conn.close()
 
-    if is_weekend and len(recent_news) > 30:
-        logger.info("周末模式：从 %d 条本周资讯中筛选影响值最高的 30 条（含时间加权）", len(recent_news))
-        recent_news = _filter_news_by_impact(recent_news, 30, reference_date=ref_dt, is_weekend=True)
+    if is_weekend and len(recent_news) > NEWS_FILTER_TARGET_COUNT:
+        logger.info("周末模式：从 %d 条本周资讯中筛选影响值最高的 %d 条（含时间加权）",
+                    len(recent_news), NEWS_FILTER_TARGET_COUNT)
+        recent_news = _filter_news_by_impact(recent_news, NEWS_FILTER_TARGET_COUNT, reference_date=ref_dt, is_weekend=True)
 
     # Always score news when we have enough for meaningful ranking
     scored_news = []
-    if len(recent_news) >= 5 and not (is_weekend and len(recent_news) > 30):
+    if len(recent_news) >= 5 and not (is_weekend and len(recent_news) > NEWS_FILTER_TARGET_COUNT):
         # Weekend bulk news already scored above with time weights
-        scored_news = _filter_news_by_impact(recent_news, 30, reference_date=ref_dt, is_weekend=is_weekend)
+        scored_news = _filter_news_by_impact(recent_news, NEWS_FILTER_TARGET_COUNT, reference_date=ref_dt, is_weekend=is_weekend)
         for item in scored_news:
             item.setdefault("impact_score", 5)
             item.setdefault("impact_category", "其他")
             item.setdefault("time_weight", 1.0)
             item.setdefault("combined_score", item["impact_score"])
-    elif is_weekend and len(recent_news) > 30:
+    elif is_weekend and len(recent_news) > NEWS_FILTER_TARGET_COUNT:
         # Already scored with time weights in the block above
         scored_news = recent_news
     else:

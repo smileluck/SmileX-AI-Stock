@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 from datetime import datetime
 
 from app.database import get_connection
@@ -81,31 +80,7 @@ def _build_score_prompt(news_list: list[dict], sectors: list[dict]) -> list[dict
 
 
 def _parse_score_response(resp: str) -> list[dict]:
-    if not resp:
-        return []
-    candidates = []
-    if resp.lstrip().startswith("["):
-        candidates.append(resp)
-    m = re.search(r"```(?:json)?\s*(.*?)\s*```", resp, re.DOTALL)
-    if m:
-        candidates.append(m.group(1))
-    for c in candidates:
-        try:
-            parsed = json.loads(c)
-            if isinstance(parsed, list):
-                return parsed
-        except (json.JSONDecodeError, TypeError):
-            continue
-    start = resp.find("[")
-    end = resp.rfind("]")
-    if start >= 0 and end > start:
-        try:
-            parsed = json.loads(resp[start : end + 1])
-            if isinstance(parsed, list):
-                return parsed
-        except (json.JSONDecodeError, TypeError):
-            pass
-    return []
+    return llm.parse_json_response(resp, expect="array")
 
 
 def score_news_to_sectors(trade_date: str, top_n: int = 50) -> dict:
