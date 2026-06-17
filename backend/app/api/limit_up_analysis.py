@@ -4,11 +4,11 @@ from datetime import datetime
 from fastapi import APIRouter, Query
 
 from app.services.limit_up_analysis import (
+    generate_limit_up_analysis,
     get_analysis_task_status,
     get_limit_up_analysis_by_date,
     get_limit_up_analysis_history,
     snapshot_limit_up_analysis_data,
-    start_analysis_task,
 )
 
 router = APIRouter(tags=["limit_up_analysis"])
@@ -49,11 +49,13 @@ def trigger_snapshot(phase: str = "close"):
 def trigger_generate(trade_date: str | None = None, phase: str = "close"):
     date = trade_date or datetime.now().strftime("%Y-%m-%d")
     try:
-        result = start_analysis_task(date, phase=phase)
+        result = generate_limit_up_analysis(date, phase=phase, refresh_snapshot=True)
         if result.get("already_running"):
             return {"success": False, "already_running": True, "message": "已有分析任务在运行中", "data": result}
+        if result.get("snapshot_failed"):
+            return {"success": False, "snapshot_failed": True, "message": result.get("message") or "自动采集失败", "data": result}
         if result.get("no_data"):
-            return {"success": False, "no_data": True, "message": "当日无待分析数据，请先采集数据", "data": result}
+            return {"success": False, "no_data": True, "message": "当日无涨停/炸板数据或非交易日", "data": result}
         return {"success": True, "message": "涨停分析任务已启动", "data": result}
     except Exception as e:
         logger.error("启动涨停分析任务失败: %s", e, exc_info=True)

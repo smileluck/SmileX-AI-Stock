@@ -56,6 +56,18 @@ def _fetch_broken_limit_from_db(date: str) -> list[dict]:
         conn.close()
 
 
+def _has_analysis_snapshot(trade_date: str, phase: str) -> bool:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM limit_up_analysis WHERE trade_date = ? AND phase = ? LIMIT 1",
+            (trade_date, phase),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
 def fetch_broken_limit_stocks(date: str) -> list[dict]:
     """Fetch broken limit-up stocks (炸板股) via akshare, fallback to DB inference."""
     ak_date = date.replace("-", "")
@@ -461,10 +473,25 @@ def start_analysis_task(trade_date: str, phase: str) -> dict:
     }
 
 
-def generate_limit_up_analysis(trade_date: str | None = None, phase: str = "close") -> dict:
+def generate_limit_up_analysis(trade_date: str | None = None, phase: str = "close", refresh_snapshot: bool = False) -> dict:
     """Backward-compat entry point for scheduled jobs. Triggers async task and returns immediately."""
     if not trade_date:
         trade_date = datetime.now().strftime("%Y-%m-%d")
+    key = (trade_date, phase)
+    with _tasks_lock:
+        existing = _running_tasks.get(key)
+        if existing and existing.get("active"):
+            return {
+                "started": False,
+                "already_running": True,
+                "trade_date": trade_date,
+                "phase": phase,
+                **{k: existing.get(k) for k in ("total", "done")},
+            }
+    if refresh_snapshot or not _has_analysis_snapshot(trade_date, phase):
+        snapshot_result = snapshot_limit_up_analysis_data(trade_date=trade_date, trigger="auto", phase=phase)
+        if not snapshot_result.get("success"):
+            return {"started": False, "snapshot_failed": True, "trade_date": trade_date, "phase": phase, "message": snapshot_result.get("message")}
     return start_analysis_task(trade_date, phase)
 
 
