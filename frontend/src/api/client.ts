@@ -4,7 +4,7 @@ import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 const SLOW_REQUEST_MS = 3000;
 
 const client = axios.create({
-  baseURL: "http://localhost:8801/api/v1",
+  baseURL: "http://192.168.5.183:8801/api/v1",
   timeout: 30000,
 });
 
