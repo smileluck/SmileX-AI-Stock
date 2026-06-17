@@ -615,6 +615,117 @@ def _fetch_hot_ths(top_n: int) -> list[dict]:
     return items
 
 
+def _score_recommendation_candidate(item: dict, phase: str) -> dict:
+    from app.services.constants import (
+        RECOMMENDATION_AMOUNT_MIN,
+        RECOMMENDATION_HIGH_AMPLITUDE,
+        RECOMMENDATION_IDEAL_TURNOVER_MAX,
+        RECOMMENDATION_IDEAL_TURNOVER_MIN,
+    )
+
+    score = 5.0
+    signals = list(item.get("signals") or item.get("signal_tags") or [])
+    penalties: list[str] = []
+    amount = item.get("amount")
+    change_pct = item.get("change_pct")
+    amplitude = item.get("amplitude")
+    turnover = item.get("turnover_rate") or item.get("turnover")
+    main_net = item.get("main_net_inflow")
+    main_pct = item.get("main_inflow_pct")
+    large_net = item.get("large_net_inflow")
+    current = item.get("current")
+    open_price = item.get("open")
+    prev_close = item.get("prev_close")
+    high = item.get("high")
+
+    if amount is not None:
+        if amount >= RECOMMENDATION_AMOUNT_MIN:
+            score += 0.8
+            signals.append("流动性达标")
+        else:
+            score -= 0.8
+            penalties.append("成交额偏低")
+
+    if turnover is not None:
+        if RECOMMENDATION_IDEAL_TURNOVER_MIN <= turnover <= RECOMMENDATION_IDEAL_TURNOVER_MAX:
+            score += 0.6
+            signals.append("换手合理")
+        elif turnover > RECOMMENDATION_IDEAL_TURNOVER_MAX:
+            score -= 0.5
+            penalties.append("换手偏高")
+        else:
+            score -= 0.3
+            penalties.append("换手不足")
+
+    if amplitude is not None and amplitude > RECOMMENDATION_HIGH_AMPLITUDE:
+        score -= 0.6
+        penalties.append("振幅偏大")
+
+    if change_pct is not None:
+        if phase == "morning":
+            if 0 <= change_pct <= 5:
+                score += 0.8
+                signals.append("竞价强且未过热")
+            elif change_pct > 8:
+                score -= 0.5
+                penalties.append("竞价过热")
+        elif phase == "midday":
+            if 1 <= change_pct <= 5:
+                score += 0.8
+                signals.append("午后延续区间")
+            elif -2 <= change_pct < 1:
+                score += 0.4
+                signals.append("回踩低吸区间")
+            elif change_pct > 6:
+                score -= 0.4
+                penalties.append("上午涨幅偏高")
+        elif phase == "afternoon":
+            if 0 <= change_pct <= 5:
+                score += 0.8
+                signals.append("明日延续区间")
+            elif -2 <= change_pct < 0:
+                score += 0.5
+                signals.append("尾盘低吸区间")
+            elif change_pct > 6:
+                score -= 0.4
+                penalties.append("尾盘追高")
+
+    if main_net is not None and main_net > 0:
+        score += 0.7
+        signals.append("主力净流入为正")
+    if main_pct is not None:
+        if main_pct >= 5:
+            score += 0.8
+            signals.append("主力占比强")
+        elif main_pct < 3:
+            score -= 0.4
+            penalties.append("主力占比不足")
+    if large_net is not None and large_net > 0:
+        score += 0.4
+        signals.append("大单净流入")
+
+    if current and open_price and prev_close:
+        if current > open_price and current > prev_close:
+            score += 0.5
+            signals.append("阳线确认")
+        elif current < open_price:
+            score -= 0.3
+            penalties.append("盘中走弱")
+
+    if current and high and high > 0:
+        fallback = (high - current) / high * 100
+        item["high_pullback_pct"] = round(fallback, 2)
+        if fallback > 4:
+            score -= 0.5
+            penalties.append("高位回落")
+
+    item["quant_score"] = round(max(0, min(10, score)), 1)
+    item["signals"] = list(dict.fromkeys(signals))
+    item["signal_tags"] = item["signals"]
+    item["penalty_tags"] = list(dict.fromkeys(penalties))
+    return item
+
+
 def _fetch_hot_xq(order_by: str, top_n: int) -> list[dict]:
     """雪球热度排行 - 直接 HTTP 请求，只取一页"""
     try:
@@ -1030,7 +1141,7 @@ def _fetch_auction_data(candidates: list[dict]) -> list[dict]:
                 cand = code_to_cand[code]
                 result["name"] = cand["name"]
                 result["source"] = cand["source"]
-                results.append(result)
+                results.append(_score_recommendation_candidate(result, "morning"))
 
     return results
 
@@ -1060,11 +1171,15 @@ def _format_auction_context(auction_data: list[dict]) -> str:
 
         pct_str = f"{pct:+.2f}" if pct is not None else "N/A"
         signal_str = f" 信号:[{','.join(tags)}]" if tags else ""
+        penalty_tags = d.get("penalty_tags") or []
+        penalty_str = f" 风险:[{','.join(penalty_tags)}]" if penalty_tags else ""
+        quant_score = d.get("quant_score")
+        score_str = f" 量化分{quant_score}" if quant_score is not None else ""
 
         lines.append(
             f"  {name}({code}) 竞价{pct_str}% 竞价价{current} 昨收{prev_close} "
             f"买盘{total_buy}股 卖盘{total_sell}股 买卖比{buy_sell_ratio} "
-            f"量比{vol_ratio} 来源:{source}{signal_str}"
+            f"量比{vol_ratio} 来源:{source}{score_str}{signal_str}{penalty_str}"
         )
 
     return "\n".join(lines)
@@ -1153,10 +1268,14 @@ def _preselect_midday_candidates(trade_date: str) -> list[dict]:
 def _preselect_afternoon_candidates(trade_date: str) -> list[dict]:
     """尾盘候选股：主力净流入 TOP30 过滤掉涨停/ST/非主板/负流入，留 ≤20 只。"""
     from app.services.constants import (
+        AFTERNOON_AMOUNT_MIN,
         AFTERNOON_RANK_TOP_N,
         AFTERNOON_CANDIDATE_MAX,
         AFTERNOON_CHANGE_PCT_MIN,
         AFTERNOON_CHANGE_PCT_MAX,
+        AFTERNOON_MAIN_INFLOW_PCT_MIN,
+        AFTERNOON_TURNOVER_MAX,
+        AFTERNOON_TURNOVER_MIN,
     )
     rank = _fetch_main_fund_flow_rank(top_n=AFTERNOON_RANK_TOP_N)
     if not rank:
@@ -1183,6 +1302,15 @@ def _preselect_afternoon_candidates(trade_date: str) -> list[dict]:
         if code in zt_codes:
             continue
         if (it.get("main_net_inflow") or 0) <= 0:
+            continue
+        amount = it.get("amount")
+        if amount is not None and amount < AFTERNOON_AMOUNT_MIN:
+            continue
+        main_pct = it.get("main_inflow_pct")
+        if main_pct is not None and main_pct < AFTERNOON_MAIN_INFLOW_PCT_MIN:
+            continue
+        turnover = it.get("turnover_rate")
+        if turnover is not None and (turnover < AFTERNOON_TURNOVER_MIN or turnover > AFTERNOON_TURNOVER_MAX):
             continue
         candidates.append({
             "code": code,
@@ -1262,7 +1390,7 @@ def _fetch_morning_session_data(candidates: list[dict]) -> list[dict]:
             elif current < open_price:
                 signals.append("阴线")
 
-        results.append({
+        item = {
             "code": code,
             "name": cand["name"],
             "source": cand["source"],
@@ -1276,7 +1404,8 @@ def _fetch_morning_session_data(candidates: list[dict]) -> list[dict]:
             "volume": volume,
             "amount": amount,
             "signals": signals,
-        })
+        }
+        results.append(_score_recommendation_candidate(item, "midday"))
 
     return results
 
@@ -1334,6 +1463,9 @@ def _fetch_afternoon_session_data(candidates: list[dict]) -> list[dict]:
         main_net = cand.get("main_net_inflow") or 0
         main_pct = cand.get("main_inflow_pct")
         large_net = cand.get("large_net_inflow") or 0
+        from app.services.constants import AFTERNOON_AMPLITUDE_MAX
+        if amplitude is not None and amplitude > AFTERNOON_AMPLITUDE_MAX:
+            continue
 
         signals: list[str] = []
         if main_pct is not None:
@@ -1351,7 +1483,7 @@ def _fetch_afternoon_session_data(candidates: list[dict]) -> list[dict]:
             elif current < open_price:
                 signals.append("阴线")
 
-        results.append({
+        item = {
             "code": code,
             "name": cand["name"],
             "source": cand["source"],
@@ -1369,7 +1501,8 @@ def _fetch_afternoon_session_data(candidates: list[dict]) -> list[dict]:
             "large_net_inflow": large_net,
             "turnover_rate": cand.get("turnover_rate"),
             "signals": signals,
-        })
+        }
+        results.append(_score_recommendation_candidate(item, "afternoon"))
 
     return results
 
@@ -1388,12 +1521,18 @@ def _format_midday_context(midday_data: list[dict]) -> str:
         pct_str = f"{d['change_pct']:+.2f}" if d["change_pct"] is not None else "N/A"
         amt = (d["amount"] or 0) / 1e8
         signal_str = f" 信号:[{','.join(d['signals'])}]" if d["signals"] else ""
+        penalty_tags = d.get("penalty_tags") or []
+        penalty_str = f" 风险:[{','.join(penalty_tags)}]" if penalty_tags else ""
+        quant_score = d.get("quant_score")
+        score_str = f" 量化分{quant_score}" if quant_score is not None else ""
+        pullback = d.get("high_pullback_pct")
+        pullback_str = f" 高位回落{pullback}%" if pullback is not None else ""
 
         lines.append(
             f"  {d['name']}({d['code']}) 涨幅{pct_str}% 现价{d['current']} "
             f"开{d['open']} 高{d['high']} 低{d['low']} "
-            f"成交额{amt:.2f}亿 振幅{d['amplitude']}% "
-            f"来源:{d['source']}{signal_str}"
+            f"成交额{amt:.2f}亿 振幅{d['amplitude']}%{pullback_str} "
+            f"来源:{d['source']}{score_str}{signal_str}{penalty_str}"
         )
 
     return "\n".join(lines)
@@ -1404,7 +1543,7 @@ def _format_afternoon_context(afternoon_data: list[dict]) -> str:
     if not afternoon_data:
         return ""
 
-    sorted_data = sorted(afternoon_data, key=lambda x: x.get("main_net_inflow") or 0, reverse=True)
+    sorted_data = sorted(afternoon_data, key=lambda x: (x.get("quant_score") or 0, x.get("main_net_inflow") or 0), reverse=True)
 
     lines = [f"=== 尾盘资金动向分析 ({len(sorted_data)}只候选) ==="]
     lines.append("说明: 基于14:45左右尾盘数据，已过滤涨停股，候选股均为非涨停+主力净流入为正+沪深主板")
@@ -1419,13 +1558,19 @@ def _format_afternoon_context(afternoon_data: list[dict]) -> str:
         turnover = d.get("turnover_rate")
         turnover_str = f"{turnover}" if turnover is not None else "N/A"
         signal_str = f" 信号:[{','.join(d['signals'])}]" if d.get("signals") else ""
+        penalty_tags = d.get("penalty_tags") or []
+        penalty_str = f" 风险:[{','.join(penalty_tags)}]" if penalty_tags else ""
+        quant_score = d.get("quant_score")
+        score_str = f" 量化分{quant_score}" if quant_score is not None else ""
+        pullback = d.get("high_pullback_pct")
+        pullback_str = f" 高位回落{pullback}%" if pullback is not None else ""
 
         lines.append(
             f"  {d['name']}({d['code']}) 涨幅{pct_str}% 现价{d['current']} "
             f"开{d['open']} 高{d['high']} 低{d['low']} "
-            f"成交额{amt:.2f}亿 振幅{d['amplitude']}% "
+            f"成交额{amt:.2f}亿 振幅{d['amplitude']}%{pullback_str} "
             f"主力净流{main_net:.2f}亿({main_pct_str}%) 大单{large_net:.2f}亿 "
-            f"换手{turnover_str}% 来源:{d['source']}{signal_str}"
+            f"换手{turnover_str}% 来源:{d['source']}{score_str}{signal_str}{penalty_str}"
         )
 
     return "\n".join(lines)
@@ -1463,6 +1608,8 @@ _REC_SYSTEM_PROMPT = """\
    - 收盘价高于目标价或达到止盈价：超预期表现
    - 结合当日板块整体表现评估个股相对强弱
    - reason 中要具体说明盘中走势特征（是否触达买入区间、最高/最低价表现等）
+   - 对未达预期的推荐，必须在 reason 中归因到至少一类：追高、板块退潮、资金背离、消息兑现、流动性不足、盘中破位
+   - 对表现较好的推荐，必须说明成功来自：板块共振、资金延续、低吸有效、强势突破或风险控制有效
 
 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
 """
@@ -1470,7 +1617,7 @@ _REC_SYSTEM_PROMPT = """\
 _REC_MORNING_SYSTEM_PROMPT = """\
 你是一位资深A股投资顾问，负责根据集合竞价数据和市场信息为用户挑选具有投资价值的个股。
 
-请根据以下市场数据和竞价分析，推荐 5-10 只有潜力的个股。要求：
+请根据以下市场数据和竞价分析，优先参考量化分、信号标签和风险标签，推荐 3-6 只可交易性较好的个股。要求：
 
 1. 每只股票必须包含以下字段，以 JSON 数组格式输出：
    - code: 股票代码（如 "600519"）
@@ -1489,11 +1636,11 @@ _REC_MORNING_SYSTEM_PROMPT = """\
    - score: 综合评分 1-10
 
 2. 推荐原则：
-   - 重点参考集合竞价数据，竞价涨幅高且买盘强势的股票优先考虑
-   - 买卖比 > 3 说明买盘远强于卖盘，开盘大概率继续走强
-   - 量比异常(>5)说明市场关注度高，可能有大资金介入
-   - 竞价涨停的股票封板概率高但风险也大，需谨慎评估
-   - 昨日涨停今日继续高开的股票具有强延续性，值得重点关注
+   - 重点参考集合竞价数据、量化分、信号标签和风险标签，优先选择可成交、有换手、有板块共振的股票
+   - 买卖比 > 3 说明买盘远强于卖盘，但若同时出现“竞价过热”“成交额偏低”等风险标签，应降级为观察
+   - 量比异常(>5)说明市场关注度高，需结合成交额和昨日强势来源确认，不单独作为推荐理由
+   - 竞价涨停的股票封板概率高但风险也大，除非量化分高且无明显风险标签，否则不作为普通买入推荐
+   - 昨日涨停今日继续高开的股票具有强延续性，但必须确认没有一字不可买或高开过热问题
    - 结合热门板块和隔夜新闻利好，寻找竞价强势+消息面共振的品种
    - 不推荐ST、*ST股票
    - 只推荐沪深主板股票（代码以60或00开头），禁止推荐科创板(688)、创业板(30)、北交所(8/4开头）
@@ -1508,7 +1655,7 @@ _REC_MORNING_SYSTEM_PROMPT = """\
 _REC_MIDDAY_SYSTEM_PROMPT = """\
 你是一位资深A股投资顾问，负责根据上午盘面数据为用户挑选午后有潜力的个股。
 
-请根据以下上午盘面数据和市场信息，推荐 5-10 只有潜力的个股。要求：
+请根据以下上午盘面数据和市场信息，优先参考量化分、信号标签和风险标签，推荐 3-6 只午后有潜力的个股。要求：
 
 1. 每只股票必须包含以下字段，以 JSON 数组格式输出：
    - code: 股票代码（如 "600519"）
@@ -1527,11 +1674,11 @@ _REC_MIDDAY_SYSTEM_PROMPT = """\
    - score: 综合评分 1-10
 
 2. 推荐原则：
-   - 重点参考上午盘面数据，上午涨幅较大且成交量放大的股票午后有延续动力
-   - 早盘推荐的股票中上午表现强势的值得继续关注
-   - 上午缩量回调到支撑位的强势股可能是午后低吸机会
-   - 关注上午板块轮动方向，午后可能继续发酵的热点板块龙头
-   - 结合上午新闻和市场情绪，寻找午后可能启动的品种
+   - 必须明确推荐逻辑属于“半日强势延续”或“午后低吸”，不要把两类策略混写
+   - 延续型优先选择量化分高、上午涨幅 1%-5%、成交额达标、阳线确认且风险标签少的股票
+   - 低吸型优先选择强势来源明确、回踩未破关键区间、高位回落可控且板块仍强的股票
+   - 早盘推荐的股票中，若上午跌破止损、阴线走弱或风险标签较多，应降低评分或不再推荐
+   - 关注上午板块轮动方向，午后可能继续发酵的热点板块龙头优先
    - 不推荐ST、*ST股票
    - 只推荐沪深主板股票（代码以60或00开头），禁止推荐科创板(688)、创业板(30)、北交所(8/4开头）
    - 买入区间应基于上午收盘价合理设定，buy_low 不高于当前价，buy_high 可略高于当前价
@@ -1545,7 +1692,7 @@ _REC_MIDDAY_SYSTEM_PROMPT = """\
 _REC_AFTERNOON_SYSTEM_PROMPT = """\
 你是一位资深A股投资顾问，负责基于尾盘资金动向为用户挑选明日有望高开的个股。
 
-以下是 14:45 左右的尾盘资金流向数据（候选股均已过滤掉今日涨停股、ST股、非主板股，且主力净流入为正）。请推荐 5-8 只明日有望高开或继续走强的个股。要求：
+以下是 14:45 左右的尾盘资金流向数据（候选股均已过滤掉今日涨停股、ST股、非主板股，且主力净流入为正）。请优先参考量化分、信号标签和风险标签，推荐 3-5 只明日有望高开或继续走强的个股。要求：
 
 1. 每只股票必须包含以下字段，以 JSON 数组格式输出：
    - code: 股票代码（如 "600519"）
@@ -1565,8 +1712,9 @@ _REC_AFTERNOON_SYSTEM_PROMPT = """\
 
 2. 推荐原则：
    - **核心信号：主力净流入金额大且占比高（>5%）** 说明资金真金白银介入，明日高开概率大
+   - 优先选择量化分靠前、风险标签少、成交额达标、主力占比强且阳线确认的股票
    - 尾盘涨幅 -2% ~ 7% 区间最理想：包含小幅回调的强势股和稳步上涨的活跃股，既反映资金介入，又留有明日上涨空间
-   - 涨幅已经接近 7% 上限的需要谨慎（可能已透支，追高风险大），可优先选涨幅 0-5% 的品种
+   - 涨幅已经接近 7% 上限的需要谨慎（可能已透支，追高风险大），除非主力占比、板块联动和成交额同时很强，否则降级为观察
    - 小幅回调（-2% ~ 0%）但主力净流入仍为正的股票，可能是明日低开高走的好机会
    - 量价配合：成交额放大 + 主力净流入同向 + 阳线 + 换手率合理（3%-15%）
    - 板块联动：优先选择所在板块整体强势的龙头，明日板块继续发酵时龙头最先受益
