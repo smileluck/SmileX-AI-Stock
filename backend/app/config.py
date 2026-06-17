@@ -16,3 +16,10 @@ LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "")
 MODEL_ANALYSIS = os.getenv("MODEL_ANALYSIS", "MiniMax-M3")
 MODEL_NEWS_SCORER = os.getenv("MODEL_NEWS_SCORER", "MiniMax-M3")
 MODEL_CHAT = os.getenv("MODEL_CHAT", "MiniMax-M3")
+
+# CORS：逗号分隔的 origin 列表；"*" 表示放开（仅本地/开发用）
+_CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "*").strip()
+if _CORS_RAW == "*":
+    CORS_ALLOWED_ORIGINS = ["*"]
+else:
+    CORS_ALLOWED_ORIGINS = [o.strip() for o in _CORS_RAW.split(",") if o.strip()]

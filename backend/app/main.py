@@ -20,6 +20,7 @@ from app.api.stock_daily import router as stock_daily_router
 from app.api.stock_analysis import router as stock_analysis_router
 from app.api.watchlist import router as watchlist_router
 from app.api.tomorrow_strategy import router as tomorrow_strategy_router
+from app.config import CORS_ALLOWED_ORIGINS
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
@@ -111,7 +112,7 @@ app = FastAPI(title="SmileX AI Stock", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

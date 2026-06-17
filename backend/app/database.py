@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import contextmanager
 from app.config import DATABASE_PATH
 
 _SCHEMA = """
@@ -392,6 +393,20 @@ def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DATABASE_PATH))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextmanager
+def db_session():
+    """连接管理上下文。退出时一定 close()，避免泄漏。
+
+    注意：sqlite3.Connection 内置 ``with`` 语法只做事务 commit/rollback、不关闭连接，
+    所以本项目统一通过 ``with db_session() as conn:`` 拿连接，而不是 ``with get_connection()``.
+    """
+    conn = get_connection()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 _MIGRATIONS = [

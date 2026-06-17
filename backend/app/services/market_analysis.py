@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-from app.database import get_connection
+from app.database import get_connection, db_session
 from app.services.market import CN_INDEX_NAMES, _fetch_index_daily_fallback
 from app.services import llm
 from app.services.constants import (
@@ -475,31 +475,22 @@ def generate_daily_analysis(trade_date: str | None = None) -> dict:
 
 
 def get_analysis(date: str) -> dict | None:
-    conn = get_connection()
-    try:
+    with db_session() as conn:
         row = conn.execute("SELECT * FROM market_analysis WHERE trade_date=?", (date,)).fetchone()
         return _row_to_dict(row) if row else None
-    finally:
-        conn.close()
 
 
 def get_latest_analysis() -> dict | None:
-    conn = get_connection()
-    try:
+    with db_session() as conn:
         row = conn.execute("SELECT * FROM market_analysis ORDER BY trade_date DESC LIMIT 1").fetchone()
         return _row_to_dict(row) if row else None
-    finally:
-        conn.close()
 
 
 def get_analysis_history(limit: int = 20, offset: int = 0) -> tuple[list[dict], int]:
-    conn = get_connection()
-    try:
+    with db_session() as conn:
         total = conn.execute("SELECT COUNT(*) FROM market_analysis").fetchone()[0]
         rows = conn.execute(
             "SELECT * FROM market_analysis ORDER BY trade_date DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
         return [_row_to_dict(r) for r in rows], total
-    finally:
-        conn.close()
