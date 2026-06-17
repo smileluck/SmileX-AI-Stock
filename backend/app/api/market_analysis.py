@@ -15,6 +15,8 @@ from app.services.market_analysis import (
     get_analysis_history,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["market_analysis"])
 
 

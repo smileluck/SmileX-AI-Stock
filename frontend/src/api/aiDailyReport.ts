@@ -18,6 +18,6 @@ export async function fetchReportByDate(date: string): Promise<AiDailyReportItem
 
 export async function triggerReport(date?: string): Promise<{ success: boolean; message: string; data: AiDailyReportItem | null }> {
   const params = date ? { date } : {};
-  const { data } = await client.post("/ai/report/generate", null, { params });
+  const { data } = await client.post("/ai/report/generate", null, { params, timeout: 180000 });
   return data;
 }

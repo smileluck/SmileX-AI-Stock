@@ -17,6 +17,6 @@ export async function fetchAnalysisByDate(date: string): Promise<MarketAnalysisI
 }
 
 export async function triggerAnalysis(tradeDate?: string): Promise<GenerateAnalysisResponse> {
-  const { data } = await client.post("/market/analysis/generate", { trade_date: tradeDate || null });
+  const { data } = await client.post("/market/analysis/generate", { trade_date: tradeDate || null }, { timeout: 180000 });
   return data;
 }
