@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Table, Tag, Descriptions, Card, Typography, message, Button, Space } from "antd";
 import { SyncOutlined, ReloadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { fetchSchedule, fetchSyncLogs, triggerSync } from "../api/news";
+import { usePolling } from "../hooks/usePolling";
 import type { ScheduleJob, SyncLogItem } from "../types";
 
 export default function SchedulerPage() {
@@ -22,11 +23,7 @@ export default function SchedulerPage() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-    const timer = setInterval(load, 60_000);
-    return () => clearInterval(timer);
-  }, [load]);
+  usePolling(load, 60_000);
 
   const handleSync = async () => {
     setSyncing(true);

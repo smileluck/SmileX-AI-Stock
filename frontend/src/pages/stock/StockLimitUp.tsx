@@ -20,8 +20,7 @@ import dayjs from "dayjs";
 import { fetchLimitUp, triggerLimitUpSnapshot } from "../../api/stock";
 import StockLink from "../../components/StockLink";
 import type { LimitUpResponse, LimitUpItem } from "../../types";
-
-const POSITIVE_COLOR = "#cf1322";
+import { POSITIVE_COLOR, fmtPct, fmtAmount } from "../../utils/format";
 
 const BOARD_LIST = ["沪深主板", "创业板", "科创板", "北交所"] as const;
 const BOARD_COLORS: Record<string, string> = {
@@ -37,18 +36,6 @@ function classifyBoard(code: string): string {
   if (code.startsWith("30")) return "创业板";
   if (code.startsWith("8") || code.startsWith("4")) return "北交所";
   return "其他";
-}
-
-function fmtAmount(v: number | null): string {
-  if (v == null) return "--";
-  if (Math.abs(v) >= 1_0000_0000) return (v / 1_0000_0000).toFixed(2) + "亿";
-  if (Math.abs(v) >= 1_0000) return (v / 1_0000).toFixed(2) + "万";
-  return v.toLocaleString();
-}
-
-function fmtPct(v: number | null): string {
-  if (v == null) return "--";
-  return `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
 const columns = [

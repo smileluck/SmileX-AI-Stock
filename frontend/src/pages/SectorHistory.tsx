@@ -24,28 +24,9 @@ import type {
   SectorHistoryRangeResponse,
   SectorTrendResponse,
 } from "../types";
+import { POSITIVE_COLOR, NEGATIVE_COLOR, fmtPct, fmtAmount, pctColor } from "../utils/format";
 
 const { RangePicker } = DatePicker;
-
-const POSITIVE_COLOR = "#cf1322";
-const NEGATIVE_COLOR = "#3f8600";
-
-function pctColor(v: number | null): string | undefined {
-  if (v == null) return undefined;
-  return v > 0 ? POSITIVE_COLOR : v < 0 ? NEGATIVE_COLOR : undefined;
-}
-
-function fmtPct(v: number | null): string {
-  if (v == null) return "--";
-  return `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
-}
-
-function fmtAmount(v: number | null): string {
-  if (v == null) return "--";
-  if (Math.abs(v) >= 1_0000_0000) return (v / 1_0000_0000).toFixed(2) + "亿";
-  if (Math.abs(v) >= 1_0000) return (v / 1_0000).toFixed(2) + "万";
-  return v.toLocaleString();
-}
 
 // ── Range aggregated columns ──
 const rangeColumns = [

@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Button, Spin, Alert, Typography } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
 import IndexSection from "../components/Dashboard/IndexSection";
 import { fetchMarketOverview } from "../api/market";
+import { usePolling } from "../hooks/usePolling";
 import type { MarketOverviewResponse } from "../types";
 
 export default function Dashboard() {
@@ -23,11 +24,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    loadData();
-    const timer = setInterval(loadData, 30_000);
-    return () => clearInterval(timer);
-  }, [loadData]);
+  usePolling(loadData, 30_000);
 
   return (
     <div>
