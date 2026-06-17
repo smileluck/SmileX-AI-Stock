@@ -602,7 +602,18 @@ export interface SectorAnalysisResponse {
 export interface GenerateSectorAnalysisResponse {
   success: boolean;
   message: string;
-  data: SectorAnalysisItem | Record<string, SectorAnalysisItem | null> | null;
+  data: Record<string, unknown> | SectorAnalysisItem | null;
+}
+
+export interface SectorAnalysisTaskStatus {
+  active: boolean;
+  status: "idle" | "running" | "completed" | "failed";
+  trade_date: string;
+  sector_type?: string | null;
+  stage?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error?: string | null;
 }
 
 // --- Limit Up AI Analysis ---

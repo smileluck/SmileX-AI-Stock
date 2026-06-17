@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Typography, Card, Table, Tag, Statistic, Row, Col, Button, Spin, Alert, DatePicker, Space, message, Tabs, Progress,
 } from "antd";
@@ -9,13 +9,14 @@ import dayjs from "dayjs";
 import {
   fetchLatestSectorAnalysis,
   fetchSectorAnalysisHistory,
+  fetchSectorAnalysisTaskStatus,
   triggerSectorAnalysis,
   triggerSectorReview,
 } from "../api/sectorAnalysis";
 import { fetchActiveStrategy } from "../api/strategy";
 import type { StrategyItem } from "../api/strategy";
 import type {
-  SectorAnalysisItem, SectorPredictionItem, SectorPredictionSummary, ScoredNewsItem,
+  SectorAnalysisItem, SectorAnalysisTaskStatus, SectorPredictionItem, SectorPredictionSummary, ScoredNewsItem,
 } from "../types";
 
 function DirectionTag({ direction }: { direction: string }) {
@@ -47,7 +48,10 @@ function SectorAnalysisTab({ sectorType }: { sectorType: string }) {
   const [error, setError] = useState<string | null>(null);
   const [historyItems, setHistoryItems] = useState<SectorAnalysisItem[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
+  const [taskStatus, setTaskStatus] = useState<SectorAnalysisTaskStatus | null>(null);
+  const [taskDate, setTaskDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [page, setPage] = useState(1);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pageSize = 10;
 
   const loadLatest = useCallback(async () => {
@@ -73,27 +77,68 @@ function SectorAnalysisTab({ sectorType }: { sectorType: string }) {
     }
   }, [page, sectorType]);
 
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const pollTask = useCallback(async (tradeDate: string) => {
+    try {
+      const status = await fetchSectorAnalysisTaskStatus(tradeDate, sectorType);
+      setTaskStatus(status);
+      if (!status.active) {
+        stopPolling();
+        setGenerating(false);
+        if (status.status === "completed") {
+          message.success(`${label}分析完成`);
+          loadLatest();
+          loadHistory();
+        } else if (status.status === "failed") {
+          message.error(status.error || `${label}分析失败`);
+        }
+      }
+    } catch {
+      // keep polling transient failures
+    }
+  }, [sectorType, label, loadLatest, loadHistory, stopPolling]);
+
+  const startPolling = useCallback((tradeDate: string) => {
+    stopPolling();
+    pollTimerRef.current = setInterval(() => pollTask(tradeDate), 5000);
+  }, [pollTask, stopPolling]);
+
   useEffect(() => { loadLatest(); }, [loadLatest]);
   useEffect(() => { loadHistory(); }, [loadHistory]);
+  useEffect(() => {
+    fetchSectorAnalysisTaskStatus(taskDate, sectorType).then((status) => {
+      setTaskStatus(status);
+      if (status.active) {
+        setGenerating(true);
+        startPolling(taskDate);
+      }
+    }).catch(() => {});
+    return () => stopPolling();
+  }, [taskDate, sectorType, startPolling, stopPolling]);
 
   const handleGenerate = async (date?: string) => {
+    const tradeDate = date || dayjs().format("YYYY-MM-DD");
+    setTaskDate(tradeDate);
     setGenerating(true);
     try {
-      const res = await triggerSectorAnalysis(date, sectorType);
+      const res = await triggerSectorAnalysis(tradeDate, sectorType);
       if (res.success) {
         message.success(res.message);
-        if (res.data && typeof res.data === "object" && sectorType in res.data) {
-          setLatest((res.data as Record<string, SectorAnalysisItem>)[sectorType]);
-        } else {
-          setLatest(res.data as unknown as SectorAnalysisItem);
-        }
-        loadHistory();
+        const status = await fetchSectorAnalysisTaskStatus(tradeDate, sectorType);
+        setTaskStatus(status);
+        startPolling(tradeDate);
       } else {
         message.error(res.message);
+        setGenerating(false);
       }
     } catch {
       message.error("生成失败，请检查后端服务");
-    } finally {
       setGenerating(false);
     }
   };
@@ -163,6 +208,23 @@ function SectorAnalysisTab({ sectorType }: { sectorType: string }) {
       </div>
 
       {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
+      {taskStatus?.active && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`${label}分析任务运行中`}
+          description={
+            <div>
+              <div style={{ marginBottom: 8 }}>当前阶段：{taskStatus.stage || "处理中"}</div>
+              <Progress percent={taskStatus.stage ? 50 : 10} status="active" showInfo={false} />
+            </div>
+          }
+        />
+      )}
+      {taskStatus?.status === "failed" && taskStatus.error && (
+        <Alert message={`${label}分析失败`} description={taskStatus.error} type="error" showIcon style={{ marginBottom: 16 }} />
+      )}
 
       <Spin spinning={loading}>
         {latest && (
@@ -349,23 +411,6 @@ function SectorAnalysisTab({ sectorType }: { sectorType: string }) {
 
 function SectorReviewTab() {
   const [generating, setGenerating] = useState(false);
-
-  const handleReview = async (date?: string) => {
-    setGenerating(true);
-    try {
-      const res = await triggerSectorReview(date);
-      if (res.success) {
-        message.success(res.message);
-      } else {
-        message.error(res.message);
-      }
-    } catch {
-      message.error("生成复盘失败，请检查后端服务");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
   const [industryLatest, setIndustryLatest] = useState<SectorAnalysisItem | null>(null);
   const [conceptLatest, setConceptLatest] = useState<SectorAnalysisItem | null>(null);
   const [historyItems, setHistoryItems] = useState<SectorAnalysisItem[]>([]);
@@ -391,7 +436,7 @@ function SectorReviewTab() {
       const res = await fetchSectorAnalysisHistory(pageSize, (page - 1) * pageSize);
       const reviewed = res.items.filter((i) => i.status === "reviewed");
       setHistoryItems(reviewed);
-      setHistoryTotal(res.total);
+      setHistoryTotal(reviewed.length);
     } catch {
       // ignore
     }
@@ -399,6 +444,24 @@ function SectorReviewTab() {
 
   useEffect(() => { loadReviewed(); }, [loadReviewed]);
   useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  const handleReview = async (date?: string) => {
+    setGenerating(true);
+    try {
+      const res = await triggerSectorReview(date);
+      if (res.success) {
+        message.success(res.message);
+        loadReviewed();
+        loadHistory();
+      } else {
+        message.error(res.message);
+      }
+    } catch {
+      message.error("生成复盘失败，请检查后端服务");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const renderReviewSection = (item: SectorAnalysisItem | null, label: string) => {
     if (!item) return <Card style={{ marginBottom: 16 }}><Typography.Text type="secondary">暂无{label}复盘数据</Typography.Text></Card>;
@@ -514,7 +577,7 @@ export default function SectorAnalysis() {
           <Space>
             <Tag color="green">当前策略：{activeStrategy.name}</Tag>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              自动分析：工作日 16:00 / 周日 21:00
+              自动复盘：工作日 15:30；自动分析：工作日 15:45 / 周日 21:00
             </Typography.Text>
           </Space>
         )}

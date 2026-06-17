@@ -1,11 +1,12 @@
 import json
 import logging
 import re
+import threading
 from datetime import datetime, timedelta
 
 from app.database import get_connection
 from app.services import llm
-from app.services.sector import get_sector_history_by_date, get_sector_history_range
+from app.services.sector import get_sector_history_by_date, get_sector_history_range, snapshot_sector_data
 from app.services.strategy import get_strategy_prompt
 
 logger = logging.getLogger(__name__)
@@ -264,6 +265,33 @@ def _get_previous_prediction(trade_date: str, sector_type: str) -> dict | None:
         conn.close()
 
 
+def _has_sector_snapshot(trade_date: str, sector_type: str | None = None) -> bool:
+    conn = get_connection()
+    try:
+        if sector_type:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM sector_snapshot_item WHERE trade_date = ? AND sector_type = ?",
+                (trade_date, sector_type),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(DISTINCT sector_type) AS c FROM sector_snapshot_item WHERE trade_date = ?",
+                (trade_date,),
+            ).fetchone()
+        return bool(row and row["c"])
+    finally:
+        conn.close()
+
+
+def _ensure_sector_snapshot_ready(trade_date: str, sector_type: str | None = None) -> None:
+    if _has_sector_snapshot(trade_date, sector_type):
+        return
+    result = snapshot_sector_data(trade_date=trade_date, trigger="auto_for_sector_analysis")
+    if not result.get("success") or not _has_sector_snapshot(trade_date, sector_type):
+        label = _SECTOR_LABELS.get(sector_type or "", "板块")
+        raise RuntimeError(f"{trade_date} 无可用{label}快照数据，自动补采失败或当日非交易日")
+
+
 def _fetch_today_news(trade_date: str) -> list[dict]:
     conn = get_connection()
     try:
@@ -391,12 +419,16 @@ def generate_sector_analysis(trade_date: str | None = None, sector_type: str | N
         results = {}
         for st in ("industry", "concept"):
             try:
+                _ensure_sector_snapshot_ready(trade_date, st)
+                compare_sector_prediction(trade_date, st)
                 results[st] = _generate_single_analysis(trade_date, st)
             except Exception:
                 logger.exception("生成 %s 分析失败", st)
                 results[st] = None
         return results
 
+    _ensure_sector_snapshot_ready(trade_date, sector_type)
+    compare_sector_prediction(trade_date, sector_type)
     return _generate_single_analysis(trade_date, sector_type)
 
 
@@ -406,6 +438,7 @@ def compare_sector_prediction(today_date: str, sector_type: str | None = None) -
     for st in types:
         label = _SECTOR_LABELS.get(st, st)
         try:
+            _ensure_sector_snapshot_ready(today_date, st)
             actual = get_sector_history_by_date(today_date, st)
             actual_items = actual.get("items", [])
             if not actual_items:
@@ -438,6 +471,10 @@ def compare_sector_prediction(today_date: str, sector_type: str | None = None) -
                     continue
 
                 prev = _row_to_dict(row)
+                if prev.get("actual_data", {}).get("trade_date") == today_date and prev.get("review_text"):
+                    results[st] = prev
+                    continue
+
                 review_prompt = [
                     {"role": "system", "content": _REVIEW_SYSTEM_PROMPT},
                     {"role": "user", "content": (
@@ -470,6 +507,114 @@ def compare_sector_prediction(today_date: str, sector_type: str | None = None) -
             results[st] = None
 
     return results
+
+
+_tasks_lock = threading.Lock()
+_running_tasks: dict[tuple[str, str], dict] = {}
+
+
+def get_sector_analysis_task_status(trade_date: str, sector_type: str | None = None) -> dict:
+    key = (trade_date, sector_type or "all")
+    with _tasks_lock:
+        task = _running_tasks.get(key)
+        if not task:
+            return {
+                "active": False,
+                "status": "idle",
+                "trade_date": trade_date,
+                "sector_type": sector_type,
+                "stage": None,
+                "started_at": None,
+                "finished_at": None,
+                "error": None,
+            }
+        return {
+            "active": task["active"],
+            "status": task.get("status", "idle"),
+            "trade_date": trade_date,
+            "sector_type": sector_type,
+            "stage": task.get("stage"),
+            "started_at": task.get("started_at"),
+            "finished_at": task.get("finished_at"),
+            "error": task.get("error"),
+        }
+
+
+def _sector_analysis_worker(trade_date: str, sector_type: str | None) -> None:
+    key = (trade_date, sector_type or "all")
+
+    def set_stage(stage: str) -> None:
+        with _tasks_lock:
+            if key in _running_tasks:
+                _running_tasks[key]["stage"] = stage
+
+    try:
+        set_stage("数据准备")
+        if sector_type:
+            _ensure_sector_snapshot_ready(trade_date, sector_type)
+            set_stage("预测复盘")
+            compare_sector_prediction(trade_date, sector_type)
+            set_stage(f"{_SECTOR_LABELS.get(sector_type, sector_type)}分析")
+            _generate_single_analysis(trade_date, sector_type)
+        else:
+            for st in ("industry", "concept"):
+                set_stage(f"{_SECTOR_LABELS.get(st, st)}数据准备")
+                _ensure_sector_snapshot_ready(trade_date, st)
+                set_stage(f"{_SECTOR_LABELS.get(st, st)}预测复盘")
+                compare_sector_prediction(trade_date, st)
+                set_stage(f"{_SECTOR_LABELS.get(st, st)}分析")
+                _generate_single_analysis(trade_date, st)
+        with _tasks_lock:
+            if key in _running_tasks:
+                _running_tasks[key]["active"] = False
+                _running_tasks[key]["status"] = "completed"
+                _running_tasks[key]["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                _running_tasks[key]["stage"] = None
+        logger.info("板块分析任务完成 trade_date=%s sector_type=%s", trade_date, sector_type or "all")
+    except Exception as e:
+        logger.exception("板块分析任务失败 trade_date=%s sector_type=%s", trade_date, sector_type or "all")
+        with _tasks_lock:
+            if key in _running_tasks:
+                _running_tasks[key]["active"] = False
+                _running_tasks[key]["status"] = "failed"
+                _running_tasks[key]["error"] = str(e)
+                _running_tasks[key]["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                _running_tasks[key]["stage"] = None
+
+
+def start_sector_analysis_task(trade_date: str, sector_type: str | None = None) -> dict:
+    key = (trade_date, sector_type or "all")
+    with _tasks_lock:
+        existing = _running_tasks.get(key)
+        if existing and existing.get("active"):
+            return {
+                "started": False,
+                "already_running": True,
+                "trade_date": trade_date,
+                "sector_type": sector_type,
+                "started_at": existing.get("started_at"),
+                "stage": existing.get("stage"),
+            }
+        _running_tasks[key] = {
+            "active": True,
+            "status": "running",
+            "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "finished_at": None,
+            "stage": "初始化",
+            "error": None,
+        }
+
+    t = threading.Thread(target=_sector_analysis_worker, args=(trade_date, sector_type), daemon=True)
+    t.start()
+    logger.info("已启动板块分析任务 trade_date=%s sector_type=%s", trade_date, sector_type or "all")
+    return {
+        "started": True,
+        "already_running": False,
+        "trade_date": trade_date,
+        "sector_type": sector_type,
+        "started_at": _running_tasks[key]["started_at"],
+        "stage": _running_tasks[key]["stage"],
+    }
 
 
 def get_latest_sector_analysis(sector_type: str | None = None) -> dict | None:
