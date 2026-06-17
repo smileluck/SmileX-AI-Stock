@@ -14,7 +14,7 @@ from app.services.stock_daily import (
     _insert_stock_daily,
 )
 from app.services.technical_indicators import compute_indicators
-from app.services.fundamental import get_latest_fundamental
+from app.services.fundamental import fetch_stock_fundamental, get_latest_fundamental
 from app.services.capital_detail import get_latest_capital_detail
 
 logger = logging.getLogger(__name__)
@@ -198,7 +198,45 @@ def _recent_news(code: str, name: str, limit: int = 10, conn=None) -> list[dict]
     return [dict(r) for r in rows]
 
 
+def _merge_live_valuation(stock_data: dict) -> dict:
+    if stock_data.get("pe_ttm") is not None and stock_data.get("pb") is not None:
+        return stock_data
+    live = _fetch_one_stock_spot(stock_data["code"])
+    if not live:
+        return stock_data
+    for key in (
+        "pe_ttm", "pe_static", "pb", "total_market_cap", "circulating_market_cap",
+        "main_net_inflow", "main_net_inflow_pct", "super_large_net", "large_net",
+        "medium_net", "small_net", "turnover_rate", "volume_ratio", "amplitude",
+    ):
+        if stock_data.get(key) is None and live.get(key) is not None:
+            stock_data[key] = live[key]
+    return stock_data
+
+
+def _get_fundamental_context(code: str) -> dict | None:
+    fundamental = get_latest_fundamental(code)
+    if fundamental:
+        return fundamental
+    fetched = fetch_stock_fundamental(code)
+    if not fetched:
+        return None
+    return {
+        "code": code,
+        "name": "",
+        "report_date": fetched.get("report_date"),
+        "roe": fetched.get("roe"),
+        "eps": fetched.get("eps"),
+        "revenue_growth": fetched.get("revenue_growth"),
+        "profit_growth": fetched.get("profit_growth"),
+        "gross_margin": fetched.get("gross_margin"),
+        "net_margin": fetched.get("net_margin"),
+        "data_source": "live_fetch",
+    }
+
+
 def _build_context(stock_data: dict) -> tuple[dict, list[dict]]:
+    stock_data = _merge_live_valuation(stock_data)
     code = stock_data["code"]
     trade_date = stock_data["trade_date"]
     name = stock_data.get("name", "")
@@ -212,7 +250,7 @@ def _build_context(stock_data: dict) -> tuple[dict, list[dict]]:
     finally:
         conn.close()
     technical_indicators = compute_indicators(recent_daily)
-    fundamental = get_latest_fundamental(code)
+    fundamental = _get_fundamental_context(code)
     capital_detail = get_latest_capital_detail(code, trade_date)
     context = {
         "concepts": concepts,
