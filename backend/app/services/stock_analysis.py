@@ -14,8 +14,9 @@ from app.services.stock_daily import (
     _insert_stock_daily,
 )
 from app.services.technical_indicators import compute_indicators
-from app.services.fundamental import fetch_stock_fundamental, get_latest_fundamental
-from app.services.capital_detail import get_latest_capital_detail
+from app.services.fundamental import fetch_stock_fundamental, get_latest_fundamental, upsert_fundamental, refresh_one_fundamental
+from app.services.capital_detail import get_latest_capital_detail, refresh_one_capital_detail
+from app.services.stock_daily import refresh_one_stock_daily
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,14 @@ _DEFAULT_SYSTEM_PROMPT = """\
 - **context_data.technical_indicators**: 技术指标（MA5/MA10/MA20/MA60/MACD(DIF,DEA,MACD柱)/RSI(6,12,24)/KDJ(K,D,J)/布林带(上中下轨)）
 - **context_data.fundamental**: 基本面（ROE/EPS/营收增长率/净利润增长率/毛利率/净利率）
 - **context_data.capital_detail**: 资金面（北向持股数量/市值/占比/融资余额/融资买入额/融券余量）
+- **context_data.data_availability**: 各类可选数据的数据完整性、来源和缺失原因
 - **context_data.recent_daily**: 近期每日行情历史
 - **context_data.concepts**: 所属题材概念
 - **context_data.recent_recommendations**: 历史AI推荐记录
 - **context_data.recent_limit_up_analysis**: 历史涨停分析
 - **recent_news**: 相关新闻
+
+若基本面、北向/两融、技术指标、新闻或题材数据暂不可用，请明确写“数据缺失/暂不可用”，不要将数据缺失本身推断为利空。
 
 ## 分析维度与权重
 
@@ -214,16 +218,31 @@ def _merge_live_valuation(stock_data: dict) -> dict:
     return stock_data
 
 
-def _get_fundamental_context(code: str) -> dict | None:
+def _get_fundamental_context(code: str, name: str = "") -> tuple[dict | None, dict]:
     fundamental = get_latest_fundamental(code)
     if fundamental:
-        return fundamental
+        return fundamental, {
+            "available": True,
+            "source": "db",
+            "missing_fields": [],
+            "message": "使用本地最新财报指标",
+        }
+
     fetched = fetch_stock_fundamental(code)
     if not fetched:
-        return None
-    return {
+        return None, {
+            "available": False,
+            "source": "none",
+            "missing_fields": [],
+            "message": "AkShare 暂未返回可用财报指标",
+        }
+
+    if not upsert_fundamental(fetched, name):
+        logger.warning("实时基本面数据入库失败，继续用于本次分析: %s", code)
+
+    fundamental_data = {
         "code": code,
-        "name": "",
+        "name": name,
         "report_date": fetched.get("report_date"),
         "roe": fetched.get("roe"),
         "eps": fetched.get("eps"),
@@ -232,7 +251,18 @@ def _get_fundamental_context(code: str) -> dict | None:
         "gross_margin": fetched.get("gross_margin"),
         "net_margin": fetched.get("net_margin"),
         "data_source": "live_fetch",
+        "missing_fields": fetched.get("missing_fields", []),
     }
+    return fundamental_data, {
+        "available": True,
+        "source": "live_fetch",
+        "missing_fields": fetched.get("missing_fields", []),
+        "message": "实时抓取财报指标",
+    }
+
+
+def _availability(available: bool, source: str, message: str, **extra) -> dict:
+    return {"available": available, "source": source, "message": message, **extra}
 
 
 def _build_context(stock_data: dict) -> tuple[dict, list[dict]]:
@@ -250,8 +280,46 @@ def _build_context(stock_data: dict) -> tuple[dict, list[dict]]:
     finally:
         conn.close()
     technical_indicators = compute_indicators(recent_daily)
-    fundamental = _get_fundamental_context(code)
+    fundamental, fundamental_status = _get_fundamental_context(code, name)
     capital_detail = get_latest_capital_detail(code, trade_date)
+    data_availability = {
+        "technical_indicators": _availability(
+            technical_indicators is not None,
+            "stock_daily",
+            "已基于近期行情计算" if technical_indicators else "历史行情不足 26 条或行情字段不完整",
+            history_count=len(recent_daily),
+        ),
+        "fundamental": fundamental_status,
+        "capital_detail": _availability(
+            capital_detail is not None,
+            "stock_capital_detail" if capital_detail else "none",
+            "使用最近北向/两融明细" if capital_detail else "北向/两融为可选数据，可能因标的范围、交易日或数据源不可用而缺失",
+        ),
+        "concepts": _availability(
+            bool(concepts),
+            "eastmoney/sina" if concepts else "none",
+            "已获取题材概念" if concepts else "题材概念暂不可用",
+            count=len(concepts),
+        ),
+        "recent_news": _availability(
+            bool(news),
+            "news",
+            "已匹配相关新闻" if news else "本地新闻库未匹配到股票代码或名称",
+            count=len(news),
+        ),
+        "recent_recommendations": _availability(
+            bool(recommendations),
+            "stock_recommendation",
+            "存在历史推荐记录" if recommendations else "暂无历史推荐记录",
+            count=len(recommendations),
+        ),
+        "recent_limit_up_analysis": _availability(
+            bool(limit_up_records),
+            "limit_up_analysis",
+            "存在历史涨停分析记录" if limit_up_records else "暂无历史涨停分析记录",
+            count=len(limit_up_records),
+        ),
+    }
     context = {
         "concepts": concepts,
         "recent_daily": recent_daily,
@@ -260,6 +328,7 @@ def _build_context(stock_data: dict) -> tuple[dict, list[dict]]:
         "technical_indicators": technical_indicators,
         "fundamental": fundamental,
         "capital_detail": capital_detail,
+        "data_availability": data_availability,
     }
     return context, news
 
@@ -625,3 +694,35 @@ def generate_stock_analysis(code: str, trade_date: str | None = None) -> dict:
 
     # 返回最新分析记录
     return get_latest_stock_analysis(normalized) or {"code": normalized, "trade_date": trade_date, "status": "unknown"}
+
+
+def refresh_stock_data(code: str, trade_date: str | None = None) -> dict:
+    """刷新单只股票的行情、基本面、资金明细数据，供前端手动触发。"""
+    normalized = _strip_code(code.strip().upper())
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+
+    results: dict[str, dict] = {}
+    for key, fn in (
+        ("daily", lambda: refresh_one_stock_daily(normalized, trade_date)),
+        ("fundamental", lambda: refresh_one_fundamental(normalized)),
+        ("capital_detail", lambda: refresh_one_capital_detail(normalized, trade_date)),
+    ):
+        try:
+            results[key] = fn()
+        except Exception as e:
+            logger.warning("刷新 %s 失败: %s", key, e, exc_info=True)
+            results[key] = {"success": False, "message": str(e)}
+
+    summary_parts = []
+    for key in ("daily", "fundamental", "capital_detail"):
+        r = results.get(key, {})
+        label = {"daily": "行情", "fundamental": "基本面", "capital_detail": "资金明细"}[key]
+        summary_parts.append(f"{label}：{r.get('message', '失败')}")
+
+    return {
+        "code": normalized,
+        "trade_date": trade_date,
+        "results": results,
+        "summary": "；".join(summary_parts),
+    }

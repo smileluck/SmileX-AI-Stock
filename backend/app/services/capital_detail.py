@@ -205,6 +205,81 @@ def snapshot_capital_detail(trade_date: str | None = None, trigger: str = "manua
     return {"trade_date": trade_date, "processed": processed, "failed": failed, "total": len(codes)}
 
 
+def refresh_one_capital_detail(code: str, trade_date: str | None = None) -> dict:
+    """Fetch and store capital detail for a single stock (northbound + margin)."""
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+
+    north = _fetch_northbound(code, trade_date)
+    if _is_shanghai(code):
+        margin = _load_margin_sse(trade_date).get(code)
+    else:
+        margin = _load_margin_szse(trade_date).get(code)
+
+    if not north and not margin:
+        return {
+            "code": code,
+            "trade_date": trade_date,
+            "success": False,
+            "has_north": False,
+            "has_margin": False,
+            "message": "北向/两融数据均不可用",
+        }
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO stock_capital_detail
+               (trade_date, code, name,
+                north_hold_qty, north_hold_market_cap, north_hold_pct,
+                margin_balance, margin_buy, short_sell_volume, short_balance,
+                created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(trade_date, code) DO UPDATE SET
+                   north_hold_qty=excluded.north_hold_qty,
+                   north_hold_market_cap=excluded.north_hold_market_cap,
+                   north_hold_pct=excluded.north_hold_pct,
+                   margin_balance=excluded.margin_balance,
+                   margin_buy=excluded.margin_buy,
+                   short_sell_volume=excluded.short_sell_volume,
+                   short_balance=excluded.short_balance""",
+            (
+                trade_date, code, "",
+                (north or {}).get("north_hold_qty"),
+                (north or {}).get("north_hold_market_cap"),
+                (north or {}).get("north_hold_pct"),
+                (margin or {}).get("margin_balance"),
+                (margin or {}).get("margin_buy"),
+                (margin or {}).get("short_sell_volume"),
+                (margin or {}).get("short_balance"),
+                now,
+            ),
+        )
+        conn.commit()
+        return {
+            "code": code,
+            "trade_date": trade_date,
+            "success": True,
+            "has_north": north is not None,
+            "has_margin": margin is not None,
+            "message": "资金明细已更新",
+        }
+    except Exception:
+        conn.rollback()
+        logger.warning("Failed to store capital detail for %s", code, exc_info=True)
+        return {
+            "code": code,
+            "trade_date": trade_date,
+            "success": False,
+            "has_north": north is not None,
+            "has_margin": margin is not None,
+            "message": "入库失败",
+        }
+    finally:
+        conn.close()
+
+
 def get_latest_capital_detail(code: str, trade_date: str | None = None) -> dict | None:
     """Get the latest capital detail data for a stock."""
     if trade_date is None:

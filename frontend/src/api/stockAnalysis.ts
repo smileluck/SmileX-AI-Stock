@@ -65,3 +65,27 @@ export async function fetchStockAnalysisTaskStatus(
   });
   return data;
 }
+
+export interface StockDataRefreshResult {
+  code: string;
+  trade_date: string;
+  results: {
+    daily?: { success: boolean; message?: string; has_pe?: boolean; has_pb?: boolean; has_inflow?: boolean };
+    fundamental?: { success: boolean; message?: string; report_date?: string; missing_fields?: string[] };
+    capital_detail?: { success: boolean; message?: string; has_north?: boolean; has_margin?: boolean };
+  };
+  summary: string;
+}
+
+export async function refreshStockData(
+  code: string,
+  tradeDate?: string,
+): Promise<StockDataRefreshResult> {
+  const params: Record<string, string> = { code };
+  if (tradeDate) params.trade_date = tradeDate;
+  const { data } = await client.post("/stock/analysis/refresh-data", null, {
+    params,
+    timeout: 60000,
+  });
+  return data;
+}

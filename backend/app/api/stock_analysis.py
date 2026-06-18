@@ -15,6 +15,7 @@ from app.services.stock_analysis import (
     get_stock_analysis_history,
     get_stock_analysis_task_status,
     start_stock_analysis_task,
+    refresh_stock_data,
 )
 
 router = APIRouter(tags=["stock_analysis"])
@@ -77,3 +78,15 @@ def trigger_stock_analysis(request: GenerateStockAnalysisRequest):
     except Exception as e:
         logger.error("启动个股分析任务失败: %s", e, exc_info=True)
         return GenerateStockAnalysisResponse(success=False, message=str(e))
+
+
+@router.post("/stock/analysis/refresh-data")
+def refresh_stock_data_route(
+    code: str = Query(..., description="股票代码"),
+    trade_date: str | None = Query(default=None, description="交易日，默认当天"),
+):
+    """刷新单只股票的行情、基本面、资金明细数据。
+
+    刷新后需重新生成个股分析才能看到最新数据。
+    """
+    return refresh_stock_data(code, trade_date)

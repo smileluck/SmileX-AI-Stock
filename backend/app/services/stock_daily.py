@@ -486,6 +486,33 @@ def get_stock_daily(
     return [dict(r) for r in rows], total
 
 
+def refresh_one_stock_daily(code: str, trade_date: str | None = None) -> dict:
+    """实时抓取单只股票当日行情并入库。"""
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+
+    spot = _fetch_one_stock_spot(code)
+    if not spot:
+        return {
+            "code": code,
+            "trade_date": trade_date,
+            "success": False,
+            "message": "行情数据抓取失败（东财富/新浪均无返回）",
+        }
+
+    spot["trade_date"] = trade_date
+    _insert_stock_daily(spot, trade_date)
+    return {
+        "code": code,
+        "trade_date": trade_date,
+        "success": True,
+        "has_pe": spot.get("pe_ttm") is not None,
+        "has_pb": spot.get("pb") is not None,
+        "has_inflow": spot.get("main_net_inflow") is not None,
+        "message": "行情数据已更新",
+    }
+
+
 def get_stock_daily_detail(code: str, trade_date: str | None = None) -> dict | None:
     conn = get_connection()
     try:

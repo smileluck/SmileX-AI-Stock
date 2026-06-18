@@ -24,9 +24,10 @@ import {
   fetchStockAnalysisHistory,
   fetchStockAnalysisTaskStatus,
   triggerStockAnalysis,
+  refreshStockData,
   type StockAnalysisTaskStatus,
 } from "../../api/stockAnalysis";
-import type { StockAnalysisItem } from "../../types";
+import type { StockAnalysisItem, StockCapitalDetailContext, StockFundamentalContext } from "../../types";
 
 const PAGE_SIZE = 20;
 const POSITIVE_COLOR = "#cf1322";
@@ -80,6 +81,14 @@ function valueColor(value: unknown): string | undefined {
   return num > 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
 }
 
+function availabilityMessage(record: StockAnalysisItem, key: string, fallback: string): string {
+  return record.context_data.data_availability?.[key]?.message || fallback;
+}
+
+function missingFieldsText(fields?: string[]): string | null {
+  return fields?.length ? `缺失字段：${fields.join("、")}` : null;
+}
+
 function summaryValue(record: StockAnalysisItem, key: string): unknown {
   return record.prediction_summary?.[key as keyof typeof record.prediction_summary];
 }
@@ -98,6 +107,67 @@ function renderDirection(value?: string) {
 function renderRisk(value?: string) {
   if (!value) return <Tag>--</Tag>;
   return <Tag color={riskColors[value] || "default"}>{value}</Tag>;
+}
+
+function FundamentalCapitalCard({ record }: { record: StockAnalysisItem }) {
+  const fundamental = record.context_data.fundamental as StockFundamentalContext | null | undefined;
+  const capitalDetail = record.context_data.capital_detail as StockCapitalDetailContext | null | undefined;
+  const fundamentalMissing = missingFieldsText(fundamental?.missing_fields || record.context_data.data_availability?.fundamental?.missing_fields);
+
+  return (
+    <Card title="基本面与资金数据">
+      <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <div>
+          <Typography.Text strong>基本面指标</Typography.Text>
+          {fundamental ? (
+            <>
+              <Descriptions size="small" column={{ xs: 1, sm: 2, md: 4 }} style={{ marginTop: 8 }}>
+                <Descriptions.Item label="报告期">{fundamental.report_date || "--"}</Descriptions.Item>
+                <Descriptions.Item label="EPS">{fmtNumber(fundamental.eps)}</Descriptions.Item>
+                <Descriptions.Item label="ROE">{fmtPct(fundamental.roe)}</Descriptions.Item>
+                <Descriptions.Item label="营收增长率">{fmtPct(fundamental.revenue_growth)}</Descriptions.Item>
+                <Descriptions.Item label="净利润增长率">{fmtPct(fundamental.profit_growth)}</Descriptions.Item>
+                <Descriptions.Item label="毛利率">{fmtPct(fundamental.gross_margin)}</Descriptions.Item>
+                <Descriptions.Item label="净利率">{fmtPct(fundamental.net_margin)}</Descriptions.Item>
+                <Descriptions.Item label="来源">{fundamental.data_source || record.context_data.data_availability?.fundamental?.source || "--"}</Descriptions.Item>
+              </Descriptions>
+              {fundamentalMissing && <Typography.Text type="secondary">{fundamentalMissing}</Typography.Text>}
+            </>
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 8 }}
+              message={availabilityMessage(record, "fundamental", "基本面数据暂不可用")}
+            />
+          )}
+        </div>
+
+        <div>
+          <Typography.Text strong>北向与两融</Typography.Text>
+          {capitalDetail ? (
+            <Descriptions size="small" column={{ xs: 1, sm: 2, md: 4 }} style={{ marginTop: 8 }}>
+              <Descriptions.Item label="数据日期">{capitalDetail.trade_date || "--"}</Descriptions.Item>
+              <Descriptions.Item label="北向持股数量">{fmtAmount(capitalDetail.north_hold_qty)}</Descriptions.Item>
+              <Descriptions.Item label="北向持股市值">{fmtAmount(capitalDetail.north_hold_market_cap)}</Descriptions.Item>
+              <Descriptions.Item label="北向持股占比">{fmtPct(capitalDetail.north_hold_pct)}</Descriptions.Item>
+              <Descriptions.Item label="融资余额">{fmtAmount(capitalDetail.margin_balance)}</Descriptions.Item>
+              <Descriptions.Item label="融资买入额">{fmtAmount(capitalDetail.margin_buy)}</Descriptions.Item>
+              <Descriptions.Item label="融券卖出量">{fmtAmount(capitalDetail.short_sell_volume)}</Descriptions.Item>
+              <Descriptions.Item label="融券余量">{fmtAmount(capitalDetail.short_balance)}</Descriptions.Item>
+            </Descriptions>
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 8 }}
+              message={availabilityMessage(record, "capital_detail", "北向/两融数据为可选数据，当前无记录")}
+            />
+          )}
+        </div>
+      </Space>
+    </Card>
+  );
 }
 
 function AnalysisCard({ record }: { record: StockAnalysisItem | null }) {
@@ -144,6 +214,8 @@ function AnalysisCard({ record }: { record: StockAnalysisItem | null }) {
           <Descriptions.Item label="市净率">{fmtNumber(record.stock_data.pb)}</Descriptions.Item>
         </Descriptions>
       </Card>
+
+      <FundamentalCapitalCard record={record} />
 
       <Card title="结构化结论">
         <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}>
@@ -209,6 +281,7 @@ export default function StockAnalysis() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<StockAnalysisTaskStatus | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -332,6 +405,24 @@ export default function StockAnalysis() {
     }
   };
 
+  const handleRefreshData = async () => {
+    const targetCode = code.trim();
+    if (!targetCode) {
+      message.warning("请输入股票代码");
+      return;
+    }
+    setRefreshing(true);
+    try {
+      const res = await refreshStockData(targetCode, date);
+      message.success(res.summary || "数据刷新完成");
+      message.info("请点击「生成个股分析」以加载最新数据", 5);
+    } catch {
+      message.error("数据刷新失败");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const taskActive = taskStatus?.active === true && activeCodeRef.current === code.trim();
   const taskStage = taskStatus?.stage;
 
@@ -404,6 +495,13 @@ export default function StockAnalysis() {
           />
           <Button icon={<SyncOutlined spin={loading} />} onClick={() => { loadLatest(code.trim()); loadHistory(1, code.trim()); }}>
             刷新
+          </Button>
+          <Button
+            icon={<SyncOutlined spin={refreshing} />}
+            loading={refreshing}
+            onClick={handleRefreshData}
+          >
+            刷新基础数据
           </Button>
           <Button type="primary" icon={<BulbOutlined />} loading={generating} onClick={handleGenerate}>
             生成个股分析

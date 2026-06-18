@@ -521,6 +521,55 @@ export interface StockAnalysisPredictionSummary {
   key_factors?: string[];
 }
 
+export interface StockDataAvailabilityItem {
+  available?: boolean;
+  source?: string;
+  message?: string;
+  missing_fields?: string[];
+  count?: number;
+  history_count?: number;
+}
+
+export interface StockFundamentalContext {
+  code?: string;
+  name?: string;
+  report_date?: string | null;
+  roe?: number | null;
+  eps?: number | null;
+  revenue_growth?: number | null;
+  profit_growth?: number | null;
+  gross_margin?: number | null;
+  net_margin?: number | null;
+  data_source?: string;
+  missing_fields?: string[];
+}
+
+export interface StockCapitalDetailContext {
+  trade_date?: string;
+  code?: string;
+  name?: string;
+  north_hold_qty?: number | null;
+  north_hold_market_cap?: number | null;
+  north_hold_pct?: number | null;
+  margin_balance?: number | null;
+  margin_buy?: number | null;
+  short_sell_volume?: number | null;
+  short_balance?: number | null;
+  created_at?: string;
+}
+
+export interface StockAnalysisContextData {
+  concepts?: string[];
+  recent_daily?: Record<string, unknown>[];
+  recent_recommendations?: Record<string, unknown>[];
+  recent_limit_up_analysis?: Record<string, unknown>[];
+  technical_indicators?: Record<string, unknown> | null;
+  fundamental?: StockFundamentalContext | null;
+  capital_detail?: StockCapitalDetailContext | null;
+  data_availability?: Record<string, StockDataAvailabilityItem>;
+  [key: string]: unknown;
+}
+
 export interface StockAnalysisItem {
   id: number;
   trade_date: string;
@@ -531,7 +580,7 @@ export interface StockAnalysisItem {
   prediction_text: string;
   prediction_summary: StockAnalysisPredictionSummary;
   stock_data: Record<string, unknown>;
-  context_data: Record<string, unknown>;
+  context_data: StockAnalysisContextData;
   recent_news: Record<string, unknown>[];
   model_used: string;
   status: "pending" | "completed" | "failed" | string;
