@@ -14,7 +14,7 @@ import {
   Dropdown,
   Space,
 } from "antd";
-import { SyncOutlined, BulbOutlined, DownOutlined, LoadingOutlined } from "@ant-design/icons";
+import { SyncOutlined, BulbOutlined, DownOutlined, LoadingOutlined, StarOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
   fetchRecommendationTaskStatus,
@@ -25,6 +25,7 @@ import {
 } from "../../api/stock";
 import StockLink from "../../components/StockLink";
 import type { RecommendationListResponse, RecommendationItem } from "../../types";
+import { addFromRecommendation } from "../../api/watchlist";
 
 const POSITIVE_COLOR = "#cf1322";
 const NEGATIVE_COLOR = "#3f8600";
@@ -233,6 +234,29 @@ const columns = [
           {fmtPct(v)}
         </span>
       ) : "--",
+  },
+  {
+    title: "自选",
+    key: "watchlist_action",
+    width: 80,
+    fixed: "right" as const,
+    render: (_: unknown, r: RecommendationItem) => (
+      <Button
+        size="small"
+        icon={<StarOutlined />}
+        onClick={() =>
+          addFromRecommendation({
+            code: r.code,
+            name: r.name,
+            add_price: r.current_price ?? null,
+          })
+            .then(() => message.success(`已加入自选：${r.name}`))
+            .catch(() => message.error("加入失败"))
+        }
+      >
+        加入
+      </Button>
+    ),
   },
 ];
 

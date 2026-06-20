@@ -16,6 +16,7 @@ import {
   MessageOutlined,
   PieChartOutlined,
   RocketOutlined,
+  StarOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -52,6 +53,15 @@ const menuItems = [
       { key: "/sector/history", icon: <HistoryOutlined />, label: "历史板块" },
     ],
   },
+  {
+    key: "/watchlist",
+    icon: <StarOutlined />,
+    label: "自选",
+    children: [
+      { key: "/watchlist/stocks", icon: <StockOutlined />, label: "自选股" },
+      { key: "/watchlist/sectors", icon: <PieChartOutlined />, label: "自选板块" },
+    ],
+  },
   { key: "/scheduler", icon: <FieldTimeOutlined />, label: "定时任务" },
   {
     key: "/stock",
@@ -85,6 +95,7 @@ export default function Sidebar() {
     if (location.pathname.startsWith("/market")) return ["/market"];
     if (location.pathname.startsWith("/sector")) return ["/sector"];
     if (location.pathname.startsWith("/stock")) return ["/stock"];
+    if (location.pathname.startsWith("/watchlist")) return ["/watchlist"];
     if (location.pathname.startsWith("/ai-assistant")) return ["/ai-assistant"];
     return [];
   });

@@ -461,11 +461,123 @@ export interface WatchlistStockItem extends StockDailyItem {
   sort_order: number;
   watchlist_created_at: string;
   watchlist_updated_at: string;
+  add_price?: number | null;
+  add_date?: string | null;
+  target_buy_price?: number | null;
+  stop_loss_price?: number | null;
+  status?: string;
+  source?: string;
+  custom_sector_id?: number | null;
+  custom_sector_name?: string | null;
+  gain_since_add_pct?: number | null;
+  latest_action?: string | null;
+  latest_phase?: string | null;
+  latest_confidence?: number | null;
+  latest_buy_low?: number | null;
+  latest_buy_high?: number | null;
+  latest_support?: number | null;
+  latest_resistance?: number | null;
+  latest_reason?: string | null;
+  latest_analysis_date?: string | null;
 }
 
 export interface WatchlistStockResponse {
   items: WatchlistStockItem[];
   total: number;
+}
+
+export interface WatchlistSearchItem {
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct?: number | null;
+  pe_ttm?: number | null;
+  board?: string;
+}
+
+export interface WatchlistStockDailyItem {
+  trade_date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  prev_close: number | null;
+  change_pct: number | null;
+  change: number | null;
+  volume: number | null;
+  amount: number | null;
+  turnover_rate: number | null;
+  main_net_inflow: number | null;
+  main_net_inflow_pct: number | null;
+  src?: string;
+}
+
+export interface WatchlistAnalysisItem {
+  id: number;
+  trade_date: string;
+  phase: string;
+  code: string;
+  name: string;
+  analysis_text: string;
+  suggested_action: string;
+  buy_low: number | null;
+  buy_high: number | null;
+  support_price: number | null;
+  resistance_price: number | null;
+  confidence: number;
+  reason: string;
+  model_used: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WatchlistAnalysisResponse {
+  items: WatchlistAnalysisItem[];
+  total: number;
+  trade_date: string | null;
+}
+
+export interface WatchlistAnalysisTaskStatus {
+  active: boolean;
+  status: string;
+  trade_date: string;
+  phase: string;
+  started_at: string | null;
+  finished_at: string | null;
+  total: number;
+  done: number;
+  error: string | null;
+}
+
+export interface WatchlistSectorItem {
+  id: number;
+  sector_name: string;
+  sector_type: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WatchlistCustomSectorItem {
+  id: number;
+  name: string;
+  note: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  stock_count?: number;
+}
+
+export interface WatchlistCustomSectorStockItem {
+  code: string;
+  name: string;
+  add_price: number | null;
+  add_date: string | null;
+  status: string;
+  source: string;
+  close: number | null;
+  change_pct: number | null;
 }
 
 // --- Stock: Recommendation ---

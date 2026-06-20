@@ -17,7 +17,7 @@ import {
   Tooltip,
   message,
 } from "antd";
-import { SyncOutlined, ThunderboltOutlined, CameraOutlined } from "@ant-design/icons";
+import { SyncOutlined, ThunderboltOutlined, CameraOutlined, StarOutlined } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import dayjs from "dayjs";
 import {
@@ -29,6 +29,8 @@ import {
 } from "../../api/limitUpAnalysis";
 import StockLink from "../../components/StockLink";
 import type { LimitUpAnalysisItem } from "../../types";
+import { addFromRecommendation } from "../../api/watchlist";
+import { message } from "antd";
 
 const POSITIVE_COLOR = "#cf1322";
 
@@ -386,6 +388,29 @@ export default function LimitUpAnalysis() {
           ? factors.map((f, i) => <Tag key={i} style={{ marginBottom: 2 }}>{f}</Tag>)
           : <span style={{ color: "#999" }}>-</span>;
       },
+    },
+    {
+      title: "自选",
+      key: "watchlist_action",
+      width: 80,
+      fixed: "right" as const,
+      render: (_: unknown, r: LimitUpAnalysisItem) => (
+        <Button
+          size="small"
+          icon={<StarOutlined />}
+          onClick={() =>
+            addFromRecommendation({
+              code: r.code,
+              name: r.name,
+              add_price: r.price ?? null,
+            })
+              .then(() => message.success(`已加入自选：${r.name}`))
+              .catch(() => message.error("加入失败"))
+          }
+        >
+          加入
+        </Button>
+      ),
     },
   ];
 

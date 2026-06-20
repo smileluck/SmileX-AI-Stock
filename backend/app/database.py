@@ -299,6 +299,73 @@ CREATE TABLE IF NOT EXISTS watchlist_stock (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_code ON watchlist_stock(code);
 CREATE INDEX IF NOT EXISTS idx_watchlist_sort ON watchlist_stock(sort_order);
 
+-- 自定义虚拟板块（用户自己命名、手动管理成分股）
+CREATE TABLE IF NOT EXISTS watchlist_custom_sector (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    note        TEXT NOT NULL DEFAULT '',
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+-- 市场板块关注（行业/概念，从已有 sector 体系挑选）
+CREATE TABLE IF NOT EXISTS watchlist_sector (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sector_name TEXT NOT NULL,
+    sector_type TEXT NOT NULL,
+    note        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ws_name_type ON watchlist_sector(sector_name, sector_type);
+
+-- 关注股每日行情快照（与 stock_daily 解耦，专注关注股的中长期追踪）
+CREATE TABLE IF NOT EXISTS watchlist_stock_daily (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    code                TEXT NOT NULL,
+    trade_date          TEXT NOT NULL,
+    open                REAL,
+    high                REAL,
+    low                 REAL,
+    close               REAL,
+    prev_close          REAL,
+    change_pct          REAL,
+    change              REAL,
+    volume              REAL,
+    amount              REAL,
+    turnover_rate       REAL,
+    main_net_inflow     REAL,
+    main_net_inflow_pct REAL,
+    created_at          TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wsd_date_code ON watchlist_stock_daily(trade_date, code);
+CREATE INDEX IF NOT EXISTS idx_wsd_code ON watchlist_stock_daily(code);
+
+-- 买入时机分析结果（早盘/收盘各一次）
+CREATE TABLE IF NOT EXISTS watchlist_analysis (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date      TEXT NOT NULL,
+    phase           TEXT NOT NULL,
+    code            TEXT NOT NULL,
+    name            TEXT NOT NULL DEFAULT '',
+    analysis_text   TEXT NOT NULL DEFAULT '',
+    suggested_action TEXT NOT NULL DEFAULT '',
+    buy_low         REAL,
+    buy_high        REAL,
+    support_price   REAL,
+    resistance_price REAL,
+    confidence      REAL DEFAULT 0,
+    reason          TEXT NOT NULL DEFAULT '',
+    model_used      TEXT NOT NULL DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'done',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_date_phase_code ON watchlist_analysis(trade_date, phase, code);
+CREATE INDEX IF NOT EXISTS idx_wa_date ON watchlist_analysis(trade_date);
+CREATE INDEX IF NOT EXISTS idx_wa_code ON watchlist_analysis(code);
+
 CREATE TABLE IF NOT EXISTS stock_fundamental (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     code            TEXT NOT NULL,
@@ -459,6 +526,14 @@ _MIGRATIONS = [
     "ALTER TABLE stock_recommendation ADD COLUMN risk_note TEXT DEFAULT ''",
     "ALTER TABLE stock_recommendation ADD COLUMN risk_tags TEXT DEFAULT ''",
     "ALTER TABLE stock_recommendation ADD COLUMN price_stale INTEGER DEFAULT 0",
+    # ---- watchlist_stock: 扩展为完整的自选股追踪表 ----
+    "ALTER TABLE watchlist_stock ADD COLUMN add_price REAL",
+    "ALTER TABLE watchlist_stock ADD COLUMN add_date TEXT",
+    "ALTER TABLE watchlist_stock ADD COLUMN target_buy_price REAL",
+    "ALTER TABLE watchlist_stock ADD COLUMN stop_loss_price REAL",
+    "ALTER TABLE watchlist_stock ADD COLUMN status TEXT DEFAULT 'watching'",
+    "ALTER TABLE watchlist_stock ADD COLUMN custom_sector_id INTEGER",
+    "ALTER TABLE watchlist_stock ADD COLUMN source TEXT DEFAULT 'manual'",
 ]
 
 

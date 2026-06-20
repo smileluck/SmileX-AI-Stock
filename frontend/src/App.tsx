@@ -19,6 +19,9 @@ import LimitUpAnalysis from "./pages/stock/LimitUpAnalysis";
 import StockHistory from "./pages/stock/StockHistory";
 import StrategyPage from "./pages/Strategy";
 import TomorrowStrategy from "./pages/TomorrowStrategy";
+import WatchlistStocks from "./pages/watchlist/WatchlistStocks";
+import WatchlistStockDetail from "./pages/watchlist/WatchlistStockDetail";
+import WatchlistSectors from "./pages/watchlist/WatchlistSectors";
 
 function App() {
   return (
@@ -45,6 +48,10 @@ function App() {
           <Route path="/stock/limit-up" element={<StockLimitUp />} />
           <Route path="/stock/recommendation" element={<Navigate to="/analysis/stock-recommendation" replace />} />
           <Route path="/stock/history" element={<StockHistory />} />
+          <Route path="/watchlist" element={<Navigate to="/watchlist/stocks" replace />} />
+          <Route path="/watchlist/stocks" element={<WatchlistStocks />} />
+          <Route path="/watchlist/stocks/:code" element={<WatchlistStockDetail />} />
+          <Route path="/watchlist/sectors" element={<WatchlistSectors />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/scheduler" element={<SchedulerPage />} />
           <Route path="/strategy" element={<StrategyPage />} />

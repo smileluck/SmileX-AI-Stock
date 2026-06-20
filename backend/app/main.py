@@ -35,6 +35,8 @@ from app.services.fundamental import snapshot_fundamental_batch
 from app.services.capital_detail import snapshot_capital_detail
 from app.services.market_analysis import generate_daily_analysis
 from app.services.tomorrow_strategy import generate_tomorrow_strategy
+from app.services.watchlist_snapshot import snapshot_watchlist_daily
+from app.services.watchlist_analysis import generate_watchlist_analysis
 
 SYNC_INTERVAL_SECONDS = 300
 
@@ -87,6 +89,9 @@ JOBS: list[dict] = [
     {"id": "stock_fundamental_snapshot", "cron": "30 16 * * 1-5", "fn": lambda: snapshot_fundamental_batch(trigger="scheduled"), "desc": "个股基本面快照"},
     {"id": "stock_capital_detail_snapshot", "cron": "40 16 * * 1-5", "fn": lambda: snapshot_capital_detail(trigger="scheduled"), "desc": "个股资金流明细快照"},
     {"id": "tomorrow_strategy_generation", "cron": "40 15 * * 1-5", "fn": lambda: generate_tomorrow_strategy(_today()), "desc": "明日策略生成"},
+    {"id": "watchlist_daily_snapshot", "cron": "30 15 * * 1-5", "fn": lambda: snapshot_watchlist_daily(trigger="scheduled"), "desc": "自选股收盘快照"},
+    {"id": "watchlist_morning_analysis", "cron": "30 9 * * 1-5", "fn": lambda: generate_watchlist_analysis(_today(), phase="morning"), "desc": "自选股早盘AI分析"},
+    {"id": "watchlist_close_analysis", "cron": "35 15 * * 1-5", "fn": lambda: generate_watchlist_analysis(_today(), phase="close"), "desc": "自选股收盘AI分析"},
 ]
 
 
