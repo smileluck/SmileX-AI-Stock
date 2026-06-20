@@ -342,6 +342,22 @@ class RecommendationItem(BaseModel):
     actual_return_pct: float | None = None
     actual_exit_date: str | None = None
     phase: str = "afternoon"
+    # PR1/PR2: 估值与风险审计字段
+    pe_ttm: float | None = None
+    pe_static: float | None = None
+    pb: float | None = None
+    total_market_cap: float | None = None
+    cum_gain_5d: float | None = None
+    cum_gain_20d: float | None = None
+    cum_gain_60d: float | None = None
+    roe: float | None = None
+    revenue_growth: float | None = None
+    profit_growth: float | None = None
+    catalyst: str | None = None
+    high_position_risk: str | None = None
+    risk_note: str | None = None
+    risk_tags: str | None = None  # JSON 字符串数组
+    price_stale: int | None = None
     created_at: str
     updated_at: str
 

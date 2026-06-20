@@ -55,10 +55,49 @@ const columns = [
   { title: "名称", dataIndex: "name", key: "name", width: 100 },
   { title: "行业", dataIndex: "sector", key: "sector", width: 100 },
   {
-    title: "风险",
+    title: "PE(TTM)",
+    dataIndex: "pe_ttm",
+    key: "pe_ttm",
+    width: 80,
+    sorter: (a: RecommendationItem, b: RecommendationItem) => (a.pe_ttm ?? 0) - (b.pe_ttm ?? 0),
+    render: (v: number | null) => (v != null ? v.toFixed(1) : "--"),
+  },
+  {
+    title: "近20日涨幅",
+    dataIndex: "cum_gain_20d",
+    key: "cum_gain_20d",
+    width: 100,
+    sorter: (a: RecommendationItem, b: RecommendationItem) => (a.cum_gain_20d ?? 0) - (b.cum_gain_20d ?? 0),
+    render: (v: number | null) =>
+      v != null ? (
+        <span style={{ color: v > 50 ? POSITIVE_COLOR : v > 20 ? "#fa8c16" : undefined, fontWeight: v > 50 ? "bold" : undefined }}>
+          {v > 0 ? "+" : ""}{v.toFixed(1)}%
+        </span>
+      ) : (
+        "--"
+      ),
+  },
+  {
+    title: "催化剂",
+    dataIndex: "catalyst",
+    key: "catalyst",
+    width: 100,
+    render: (v: string | null) =>
+      v ? <Tag color="blue">{v}</Tag> : "--",
+  },
+  {
+    title: "高位风险",
+    dataIndex: "high_position_risk",
+    key: "high_position_risk",
+    width: 90,
+    render: (v: string | null) =>
+      v ? <Tag color={riskColors[v] || "default"}>{v}</Tag> : "--",
+  },
+  {
+    title: "风险评级",
     dataIndex: "risk_level",
     key: "risk_level",
-    width: 70,
+    width: 80,
     render: (v: string) => <Tag color={riskColors[v] || "default"}>{v}</Tag>,
   },
   {

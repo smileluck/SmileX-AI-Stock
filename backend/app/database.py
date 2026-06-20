@@ -443,6 +443,22 @@ _MIGRATIONS = [
      "model_used, status, created_at, updated_at FROM sector_analysis_old"),
     "DROP TABLE IF EXISTS sector_analysis_old",
     "UPDATE sector_analysis SET sector_type='industry' WHERE sector_type='all'",
+    # ---- stock_recommendation: 估值/累计涨幅/催化剂/风险审计列（PR1 风控） ----
+    "ALTER TABLE stock_recommendation ADD COLUMN pe_ttm REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN pe_static REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN pb REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN total_market_cap REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN cum_gain_5d REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN cum_gain_20d REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN cum_gain_60d REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN roe REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN revenue_growth REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN profit_growth REAL",
+    "ALTER TABLE stock_recommendation ADD COLUMN catalyst TEXT DEFAULT ''",
+    "ALTER TABLE stock_recommendation ADD COLUMN high_position_risk TEXT DEFAULT ''",
+    "ALTER TABLE stock_recommendation ADD COLUMN risk_note TEXT DEFAULT ''",
+    "ALTER TABLE stock_recommendation ADD COLUMN risk_tags TEXT DEFAULT ''",
+    "ALTER TABLE stock_recommendation ADD COLUMN price_stale INTEGER DEFAULT 0",
 ]
 
 

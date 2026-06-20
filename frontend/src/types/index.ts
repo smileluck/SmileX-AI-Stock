@@ -492,6 +492,22 @@ export interface RecommendationItem {
   actual_return_pct: number | null;
   actual_exit_date: string | null;
   phase: string;
+  // PR1/PR2 估值与风险审计字段
+  pe_ttm?: number | null;
+  pe_static?: number | null;
+  pb?: number | null;
+  total_market_cap?: number | null;
+  cum_gain_5d?: number | null;
+  cum_gain_20d?: number | null;
+  cum_gain_60d?: number | null;
+  roe?: number | null;
+  revenue_growth?: number | null;
+  profit_growth?: number | null;
+  catalyst?: string | null;
+  high_position_risk?: string | null;
+  risk_note?: string | null;
+  risk_tags?: string | null;
+  price_stale?: number | null;
   created_at: string;
   updated_at: string;
 }

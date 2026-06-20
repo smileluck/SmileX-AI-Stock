@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import type { ReactNode } from "react";
 import {
   Button,
   Spin,
@@ -39,6 +40,39 @@ const riskColors: Record<string, string> = {
   high: "red",
 };
 
+// PR2: 催化剂徽章配色
+const catalystColors: Record<string, string> = {
+  "业绩预增": "gold",
+  "行业景气": "blue",
+  "资金承接": "cyan",
+  "连板情绪": "red",
+  "技术突破": "green",
+  "无明显催化剂": "default",
+};
+
+const highPosRiskColors: Record<string, string> = {
+  low: "green",
+  medium: "orange",
+  high: "red",
+};
+
+function safeParseTags(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.map((x) => String(x)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function fmtMarketCap(v: number | null | undefined): string {
+  if (v == null) return "--";
+  const yi = v / 1e8;
+  if (yi >= 1000) return `${(yi / 1000).toFixed(1)}千亿`;
+  return `${yi.toFixed(0)}亿`;
+}
+
 function statusStatusError(s: RecommendationTaskStatus): string | null {
   if (s.status === "failed" && s.error) return s.error;
   return null;
@@ -71,8 +105,18 @@ const columns = [
     title: "当前价",
     dataIndex: "current_price",
     key: "current_price",
-    width: 80,
-    render: (v: number | null) => (v != null ? v.toFixed(2) : "--"),
+    width: 90,
+    render: (v: number | null, r: RecommendationItem) =>
+      v != null ? (
+        <Space size={4}>
+          <span>{v.toFixed(2)}</span>
+          {r.price_stale === 1 ? (
+            <Tag color="red" style={{ marginInlineEnd: 0, fontSize: 11 }}>未刷新</Tag>
+          ) : null}
+        </Space>
+      ) : (
+        "--"
+      ),
   },
   {
     title: "买入区间",
@@ -105,11 +149,61 @@ const columns = [
     render: (v: number | null) => (v != null ? v.toFixed(2) : "--"),
   },
   {
+    title: "PE(TTM)",
+    dataIndex: "pe_ttm",
+    key: "pe_ttm",
+    width: 80,
+    sorter: (a: RecommendationItem, b: RecommendationItem) => (a.pe_ttm ?? 0) - (b.pe_ttm ?? 0),
+    render: (v: number | null) => (v != null ? v.toFixed(1) : "--"),
+  },
+  {
+    title: "近20日涨幅",
+    dataIndex: "cum_gain_20d",
+    key: "cum_gain_20d",
+    width: 100,
+    sorter: (a: RecommendationItem, b: RecommendationItem) => (a.cum_gain_20d ?? 0) - (b.cum_gain_20d ?? 0),
+    render: (v: number | null) =>
+      v != null ? (
+        <span style={{ color: v > 50 ? "#cf1322" : v > 20 ? "#fa8c16" : undefined, fontWeight: v > 50 ? "bold" : undefined }}>
+          {v > 0 ? "+" : ""}{v.toFixed(1)}%
+        </span>
+      ) : (
+        "--"
+      ),
+  },
+  {
+    title: "市值",
+    dataIndex: "total_market_cap",
+    key: "total_market_cap",
+    width: 90,
+    render: (v: number | null) => fmtMarketCap(v),
+  },
+  {
+    title: "催化剂",
+    dataIndex: "catalyst",
+    key: "catalyst",
+    width: 110,
+    render: (v: string | null) =>
+      v ? <Tag color={catalystColors[v] || "default"}>{v}</Tag> : "--",
+  },
+  {
     title: "风险",
-    dataIndex: "risk_level",
-    key: "risk_level",
-    width: 70,
-    render: (v: string) => <Tag color={riskColors[v] || "default"}>{v}</Tag>,
+    key: "risk_combined",
+    width: 160,
+    render: (_: unknown, r: RecommendationItem) => {
+      const tags: ReactNode[] = [];
+      if (r.risk_level) {
+        tags.push(<Tag key="rl" color={riskColors[r.risk_level] || "default"}>评级{r.risk_level}</Tag>);
+      }
+      if (r.high_position_risk) {
+        tags.push(<Tag key="hpr" color={highPosRiskColors[r.high_position_risk] || "default"}>高位{r.high_position_risk}</Tag>);
+      }
+      const proxTags = safeParseTags(r.risk_tags);
+      proxTags.forEach((t, i) => {
+        tags.push(<Tag key={`p${i}`} color="orange" style={{ fontSize: 11 }}>{t}</Tag>);
+      });
+      return tags.length ? <Space size={2} wrap>{tags}</Space> : "--";
+    },
   },
   {
     title: "信心度",

@@ -615,6 +615,258 @@ def _fetch_hot_ths(top_n: int) -> list[dict]:
     return items
 
 
+def _compute_cum_gain(conn, code: str, trade_date: str, days: int) -> float | None:
+    """复利累计涨幅 (%)。
+
+    从 stock_daily 取 trade_date < ? 的最近 N 个交易日 close，
+    cum_gain = (last_close / first_close - 1) * 100。
+    数据不足 days//2 个交易日时返回 None（不强制过滤）。
+    口径与"4月以来涨 264%"一致：复利累计，不简单累加日涨幅。
+    """
+    rows = conn.execute(
+        "SELECT close FROM stock_daily "
+        "WHERE code = ? AND trade_date < ? AND close IS NOT NULL AND close > 0 "
+        "ORDER BY trade_date DESC LIMIT ?",
+        (code, trade_date, days),
+    ).fetchall()
+    if len(rows) < max(2, days // 2):
+        return None
+    first_close = rows[-1]["close"]
+    last_close = rows[0]["close"]
+    if not first_close or first_close <= 0:
+        return None
+    return round((last_close / first_close - 1) * 100, 2)
+
+
+def _load_latest_daily_metrics(conn, code: str, trade_date: str) -> dict | None:
+    """取 stock_daily 中 trade_date <= ? 的最近一行。"""
+    row = conn.execute(
+        "SELECT trade_date, close, prev_close, change_pct, high, low, amount, "
+        "turnover_rate, amplitude, pe_ttm, pe_static, pb, "
+        "total_market_cap, circulating_market_cap, main_net_inflow, main_net_inflow_pct "
+        "FROM stock_daily "
+        "WHERE code = ? AND trade_date <= ? "
+        "ORDER BY trade_date DESC LIMIT 1",
+        (code, trade_date),
+    ).fetchone()
+    if not row:
+        return None
+    return dict(row)
+
+
+def _load_fundamental_brief(conn, code: str) -> dict | None:
+    """取 stock_fundamental 最新一行（基本面速览）。"""
+    row = conn.execute(
+        "SELECT roe, eps, revenue_growth, profit_growth, gross_margin, net_margin, report_date "
+        "FROM stock_fundamental WHERE code = ? ORDER BY report_date DESC LIMIT 1",
+        (code,),
+    ).fetchone()
+    if not row:
+        return None
+    return dict(row)
+
+
+def _load_latest_limit_up_times(conn, code: str, trade_date: str) -> int:
+    """取 trade_date <= ? 的最近一日 limit_up_snapshot 中的连板数；无记录返回 0。"""
+    row = conn.execute(
+        "SELECT limit_up_times FROM limit_up_snapshot "
+        "WHERE code = ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT 1",
+        (code, trade_date),
+    ).fetchone()
+    if not row:
+        return 0
+    return int(row["limit_up_times"] or 0)
+
+
+def _classify_risk_proximity(
+    pe_ttm: float | None,
+    cum_gain_5d: float | None,
+    cum_gain_20d: float | None,
+    limit_up_times: int,
+) -> list[str]:
+    """接近但未触发 reject 的边缘标签（透明展示给前端 + LLM）。"""
+    from app.services.constants import (
+        RECOMMENDATION_CUM_GAIN_5D_WARN,
+        RECOMMENDATION_CUM_GAIN_20D_WARN,
+        RECOMMENDATION_LIMIT_UP_TIMES_WARN,
+        RECOMMENDATION_PE_TTM_WARN,
+    )
+
+    tags: list[str] = []
+    if pe_ttm is not None and pe_ttm > 0 and pe_ttm >= RECOMMENDATION_PE_TTM_WARN:
+        tags.append(f"PE偏高({pe_ttm:.0f})")
+    if cum_gain_5d is not None and cum_gain_5d >= RECOMMENDATION_CUM_GAIN_5D_WARN:
+        tags.append(f"近5日涨幅偏大(+{cum_gain_5d:.1f}%)")
+    if cum_gain_20d is not None and cum_gain_20d >= RECOMMENDATION_CUM_GAIN_20D_WARN:
+        tags.append(f"近20日涨幅偏大(+{cum_gain_20d:.1f}%)")
+    if limit_up_times >= RECOMMENDATION_LIMIT_UP_TIMES_WARN:
+        tags.append(f"连板情绪({limit_up_times}板)")
+    return tags
+
+
+def _apply_hard_filters(
+    candidates: list[dict],
+    *,
+    trade_date: str,
+    phase: str,
+    zt_codes: set[str] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """统一硬过滤。返回 (passed, rejected)。
+
+    rejected: [{'code','name','reason'}]
+    passed 中每个候选股追加字段（供后续 payload 与持久化复用）：
+      pe_ttm, pe_static, pb, total_market_cap, close, prev_close, change_pct,
+      main_net_inflow, turnover_rate, amount,
+      cum_gain_5d, cum_gain_20d, cum_gain_60d,
+      roe, revenue_growth, profit_growth, gross_margin, net_margin,
+      limit_up_times, risk_proximity_tags
+
+    规则（phase 无关，全部对齐到尾盘标准）：
+      1. ST/*ST：name 含 'ST'（大小写不敏感）→ reject
+      2. 当日涨停：code ∈ zt_codes → reject（早盘 zt_codes=None 时跳过）
+      3. limit_up_times >= RECOMMENDATION_LIMIT_UP_TIMES_MAX → reject
+      4. pe_ttm > RECOMMENDATION_PE_TTM_MAX → reject（亏损/None 放行）
+      5. cum_gain_5d/20d/60d 任一超限 → reject
+    """
+    from app.services.constants import (
+        RECOMMENDATION_CUM_GAIN_5D_MAX,
+        RECOMMENDATION_CUM_GAIN_20D_MAX,
+        RECOMMENDATION_CUM_GAIN_60D_MAX,
+        RECOMMENDATION_LIMIT_UP_TIMES_MAX,
+        RECOMMENDATION_PE_TTM_MAX,
+    )
+
+    passed: list[dict] = []
+    rejected: list[dict] = []
+
+    conn = get_connection()
+    try:
+        for cand in candidates:
+            code = cand.get("code", "")
+            name = cand.get("name", "") or ""
+
+            # Rule 1: ST
+            if "ST" in name.upper():
+                rejected.append({"code": code, "name": name, "reason": "ST股"})
+                continue
+
+            # Rule 2: 当日涨停
+            if zt_codes and code in zt_codes:
+                rejected.append({"code": code, "name": name, "reason": "当日涨停"})
+                continue
+
+            # 加载估值/累计涨幅/基本面/连板
+            metrics = _load_latest_daily_metrics(conn, code, trade_date) or {}
+            cum_5d = _compute_cum_gain(conn, code, trade_date, 5)
+            cum_20d = _compute_cum_gain(conn, code, trade_date, 20)
+            cum_60d = _compute_cum_gain(conn, code, trade_date, 60)
+            fund = _load_fundamental_brief(conn, code) or {}
+            lu_times = _load_latest_limit_up_times(conn, code, trade_date)
+
+            pe_ttm = metrics.get("pe_ttm")
+            pe_ttm_val = _parse_float(pe_ttm)
+
+            # Rule 3: 连板 >= MAX
+            if lu_times >= RECOMMENDATION_LIMIT_UP_TIMES_MAX:
+                rejected.append({"code": code, "name": name, "reason": f"连板≥{RECOMMENDATION_LIMIT_UP_TIMES_MAX}({lu_times})"})
+                continue
+
+            # Rule 4: PE > MAX（亏损/None 放行）
+            if pe_ttm_val is not None and pe_ttm_val > 0 and pe_ttm_val > RECOMMENDATION_PE_TTM_MAX:
+                rejected.append({"code": code, "name": name, "reason": f"PE过高({pe_ttm_val:.0f})"})
+                continue
+
+            # Rule 5: 累计涨幅任一超限
+            over_limits: list[str] = []
+            if cum_5d is not None and cum_5d > RECOMMENDATION_CUM_GAIN_5D_MAX:
+                over_limits.append(f"近5日+{cum_5d:.1f}%")
+            if cum_20d is not None and cum_20d > RECOMMENDATION_CUM_GAIN_20D_MAX:
+                over_limits.append(f"近20日+{cum_20d:.1f}%")
+            if cum_60d is not None and cum_60d > RECOMMENDATION_CUM_GAIN_60D_MAX:
+                over_limits.append(f"近60日+{cum_60d:.1f}%")
+            if over_limits:
+                rejected.append({"code": code, "name": name, "reason": f"累计涨幅过大({','.join(over_limits)})"})
+                continue
+
+            # 通过：追加 enrichment 字段
+            enriched = dict(cand)
+            enriched.update({
+                "pe_ttm": pe_ttm_val,
+                "pe_static": _parse_float(metrics.get("pe_static")),
+                "pb": _parse_float(metrics.get("pb")),
+                "total_market_cap": _parse_float(metrics.get("total_market_cap")),
+                "close": _parse_float(metrics.get("close")),
+                "prev_close": _parse_float(metrics.get("prev_close")),
+                "change_pct": _parse_float(metrics.get("change_pct")),
+                "main_net_inflow": _parse_float(metrics.get("main_net_inflow")),
+                "turnover_rate": _parse_float(metrics.get("turnover_rate")),
+                "amount": _parse_float(metrics.get("amount")),
+                "cum_gain_5d": cum_5d,
+                "cum_gain_20d": cum_20d,
+                "cum_gain_60d": cum_60d,
+                "roe": _parse_float(fund.get("roe")),
+                "revenue_growth": _parse_float(fund.get("revenue_growth")),
+                "profit_growth": _parse_float(fund.get("profit_growth")),
+                "gross_margin": _parse_float(fund.get("gross_margin")),
+                "net_margin": _parse_float(fund.get("net_margin")),
+                "limit_up_times": lu_times,
+                "risk_proximity_tags": _classify_risk_proximity(
+                    pe_ttm_val, cum_5d, cum_20d, lu_times,
+                ),
+            })
+            passed.append(enriched)
+    finally:
+        conn.close()
+
+    logger.info(
+        "[%s] 候选股硬过滤：%d 通过，%d 被拒 rejected=%s",
+        phase, len(passed), len(rejected),
+        [{"code": r["code"], "name": r["name"], "reason": r["reason"]} for r in rejected],
+    )
+    return passed, rejected
+
+
+def _is_price_stale(
+    real_price: float,
+    prev_close: float,
+    trade_date: str,
+    now: datetime,
+    tolerance_pct: float | None = None,
+) -> bool:
+    """判断实时价是否疑似"未刷新/停牌"。
+
+    全部满足才算 stale：
+      1. abs(real_price - prev_close) / prev_close < tolerance_pct（默认 0.05%）
+      2. 当前时间在 A 股交易时段内（9:30~11:30 或 13:00~15:00）
+      3. trade_date 是工作日
+
+    说明：盘前 (9:15~9:30) 竞价阶段 real_price 等于昨收是正常的，不应触发 stale。
+    """
+    if tolerance_pct is None:
+        from app.services.constants import RECOMMENDATION_STALE_PRICE_TOLERANCE_PCT
+        tolerance_pct = RECOMMENDATION_STALE_PRICE_TOLERANCE_PCT
+
+    if not prev_close or prev_close <= 0:
+        return False
+    deviation = abs(real_price - prev_close) / prev_close
+    if deviation >= tolerance_pct:
+        return False
+
+    # trade_date 工作日检查（1-5 = 周一~周五）
+    try:
+        td = datetime.strptime(trade_date, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return False
+    if td.weekday() >= 5:
+        return False
+
+    # 当前时间须在 A 股交易时段
+    t = now.time()
+    in_morning = t >= datetime.strptime("09:30:00", "%H:%M:%S").time() and t <= datetime.strptime("11:30:00", "%H:%M:%S").time()
+    in_afternoon = t >= datetime.strptime("13:00:00", "%H:%M:%S").time() and t <= datetime.strptime("15:00:00", "%H:%M:%S").time()
+    return in_morning or in_afternoon
+
+
 def _score_recommendation_candidate(item: dict, phase: str) -> dict:
     from app.services.constants import (
         RECOMMENDATION_AMOUNT_MIN,
@@ -1006,7 +1258,13 @@ def _preselect_morning_candidates(trade_date: str) -> list[dict]:
     finally:
         conn.close()
 
-    return list(candidates.values())[:20]
+    passed, _rejected = _apply_hard_filters(
+        list(candidates.values()),
+        trade_date=trade_date,
+        phase="morning",
+        zt_codes=None,
+    )
+    return passed[:20]
 
 
 def _fetch_one_stock_auction_sina(code: str) -> dict | None:
@@ -1141,9 +1399,87 @@ def _fetch_auction_data(candidates: list[dict]) -> list[dict]:
                 cand = code_to_cand[code]
                 result["name"] = cand["name"]
                 result["source"] = cand["source"]
+                _merge_enrichment(result, cand)
                 results.append(_score_recommendation_candidate(result, "morning"))
 
     return results
+
+
+def _format_risk_metrics_inline(d: dict) -> str:
+    """渲染估值与风险指标 inline 字符串（接在 candidate 行尾，节省 token）。
+
+    输出形如：
+      | PE76 PB5 市值850亿 累计5日+18% 累计20日+52% 营收+119% 利润+522% 连板0 风险标签:[PE偏高,近20日涨幅偏大]
+
+    所有缺失值渲染为空（保持紧凑）。LLM 应据此推断 catalyst 与 high_position_risk。
+    """
+    def _num(val, suffix: str = "", fmt: str = ".0f") -> str:
+        if val is None:
+            return ""
+        try:
+            v = float(val)
+        except (ValueError, TypeError):
+            return ""
+        if v != v:  # NaN
+            return ""
+        return f"{v:{fmt}}{suffix}"
+
+    parts: list[str] = []
+    pe = d.get("pe_ttm")
+    if pe is not None:
+        parts.append(f"PE{_num(pe, '', '.0f')}")
+    pb = d.get("pb")
+    if pb is not None:
+        parts.append(f"PB{_num(pb, '', '.1f')}")
+    mcap = d.get("total_market_cap")
+    if mcap is not None:
+        mcap_yi = float(mcap) / 1e8
+        parts.append(f"市值{mcap_yi:.0f}亿")
+    cg5 = d.get("cum_gain_5d")
+    if cg5 is not None:
+        parts.append(f"累计5日{cg5:+.1f}%")
+    cg20 = d.get("cum_gain_20d")
+    if cg20 is not None:
+        parts.append(f"累计20日{cg20:+.1f}%")
+    cg60 = d.get("cum_gain_60d")
+    if cg60 is not None:
+        parts.append(f"累计60日{cg60:+.1f}%")
+    rg = d.get("revenue_growth")
+    if rg is not None:
+        parts.append(f"营收{rg:+.0f}%")
+    pg = d.get("profit_growth")
+    if pg is not None:
+        parts.append(f"利润{pg:+.0f}%")
+    roe = d.get("roe")
+    if roe is not None:
+        parts.append(f"ROE{_num(roe, '%', '.1f')}")
+    lu = d.get("limit_up_times")
+    if lu:
+        parts.append(f"连板{lu}")
+    tags = d.get("risk_proximity_tags") or []
+    if tags:
+        parts.append(f"风险标签:[{','.join(tags)}]")
+
+    if not parts:
+        return ""
+    return " | " + " ".join(parts)
+
+
+# Enrichment 字段透传白名单：fetch 函数从 input candidate 拷到 output item 时用
+_ENRICHMENT_KEYS = (
+    "pe_ttm", "pe_static", "pb", "total_market_cap",
+    "cum_gain_5d", "cum_gain_20d", "cum_gain_60d",
+    "roe", "revenue_growth", "profit_growth", "gross_margin", "net_margin",
+    "limit_up_times", "risk_proximity_tags",
+)
+
+
+def _merge_enrichment(target: dict, source: dict) -> dict:
+    """把 source 中的 enrichment 字段拷到 target，返回 target。"""
+    for k in _ENRICHMENT_KEYS:
+        if k in source and target.get(k) is None:
+            target[k] = source[k]
+    return target
 
 
 def _format_auction_context(auction_data: list[dict]) -> str:
@@ -1180,6 +1516,7 @@ def _format_auction_context(auction_data: list[dict]) -> str:
             f"  {name}({code}) 竞价{pct_str}% 竞价价{current} 昨收{prev_close} "
             f"买盘{total_buy}股 卖盘{total_sell}股 买卖比{buy_sell_ratio} "
             f"量比{vol_ratio} 来源:{source}{score_str}{signal_str}{penalty_str}"
+            f"{_format_risk_metrics_inline(d)}"
         )
 
     return "\n".join(lines)
@@ -1262,7 +1599,19 @@ def _preselect_midday_candidates(trade_date: str) -> list[dict]:
                 "source": f"行业领涨({r['name']})",
             }
 
-    return list(candidates.values())[:25]
+    try:
+        zt_codes_midday = {it["code"] for it in fetch_limit_up_stocks(trade_date)}
+    except Exception:
+        logger.warning("午盘候选股预筛：今日涨停池获取失败", exc_info=True)
+        zt_codes_midday = set()
+
+    passed, _rejected = _apply_hard_filters(
+        list(candidates.values()),
+        trade_date=trade_date,
+        phase="midday",
+        zt_codes=zt_codes_midday or None,
+    )
+    return passed[:25]
 
 
 def _preselect_afternoon_candidates(trade_date: str) -> list[dict]:
@@ -1328,7 +1677,14 @@ def _preselect_afternoon_candidates(trade_date: str) -> list[dict]:
             break
 
     logger.info("尾盘候选股预筛：%d 只（主力净流入 TOP%d 过滤后）", len(candidates), AFTERNOON_RANK_TOP_N)
-    return candidates
+
+    passed, _rejected = _apply_hard_filters(
+        candidates,
+        trade_date=trade_date,
+        phase="afternoon",
+        zt_codes=zt_codes or None,
+    )
+    return passed
 
 
 def _fetch_morning_session_data(candidates: list[dict]) -> list[dict]:
@@ -1405,6 +1761,7 @@ def _fetch_morning_session_data(candidates: list[dict]) -> list[dict]:
             "amount": amount,
             "signals": signals,
         }
+        _merge_enrichment(item, cand)
         results.append(_score_recommendation_candidate(item, "midday"))
 
     return results
@@ -1502,6 +1859,7 @@ def _fetch_afternoon_session_data(candidates: list[dict]) -> list[dict]:
             "turnover_rate": cand.get("turnover_rate"),
             "signals": signals,
         }
+        _merge_enrichment(item, cand)
         results.append(_score_recommendation_candidate(item, "afternoon"))
 
     return results
@@ -1533,6 +1891,7 @@ def _format_midday_context(midday_data: list[dict]) -> str:
             f"开{d['open']} 高{d['high']} 低{d['low']} "
             f"成交额{amt:.2f}亿 振幅{d['amplitude']}%{pullback_str} "
             f"来源:{d['source']}{score_str}{signal_str}{penalty_str}"
+            f"{_format_risk_metrics_inline(d)}"
         )
 
     return "\n".join(lines)
@@ -1571,6 +1930,7 @@ def _format_afternoon_context(afternoon_data: list[dict]) -> str:
             f"成交额{amt:.2f}亿 振幅{d['amplitude']}%{pullback_str} "
             f"主力净流{main_net:.2f}亿({main_pct_str}%) 大单{large_net:.2f}亿 "
             f"换手{turnover_str}% 来源:{d['source']}{score_str}{signal_str}{penalty_str}"
+            f"{_format_risk_metrics_inline(d)}"
         )
 
     return "\n".join(lines)
@@ -1600,6 +1960,11 @@ _REC_SYSTEM_PROMPT = """\
    - confidence: 信心度 0-1 之间（对后续走势的信心）
    - sector: 所属行业/板块
    - score: 综合评分 1-10（根据推荐后的实际表现打分，达标则高分，未达预期则低分）
+   - catalyst: 催化剂类型 "业绩预增"/"行业景气"/"资金承接"/"连板情绪"/"技术突破"/"无明显催化剂"
+   - high_position_risk: 高位风险 "high"/"medium"/"low"（基于当日收盘价相对推荐价重新评估）
+   - risk_note: 具体风险描述（必须含数值）
+   - pe_ttm_echo: 回显你读到的 PE(TTM) 数值（便于审计）
+   - cum_gain_20d_echo: 回显你读到的近20日累计涨幅%（便于审计）
 
 复盘原则：
    - 收盘价在买入区间内：说明买入机会出现，评估后续空间
@@ -1610,6 +1975,14 @@ _REC_SYSTEM_PROMPT = """\
    - reason 中要具体说明盘中走势特征（是否触达买入区间、最高/最低价表现等）
    - 对未达预期的推荐，必须在 reason 中归因到至少一类：追高、板块退潮、资金背离、消息兑现、流动性不足、盘中破位
    - 对表现较好的推荐，必须说明成功来自：板块共振、资金延续、低吸有效、强势突破或风险控制有效
+
+估值与安全边际原则（强制，违反将导致复盘被拒绝）：
+   - 复盘时 current_price 为当日收盘价，所有累计涨幅与 PE 口径均以收盘价计算；high_position_risk 应基于"收盘价相对推荐价的位置"重新评估
+   - 必须读取 context 行尾的 "| PE.. PB.. 累计5日.. 累计20日.." 等指标，禁止忽略；缺失值按 "无法评估" 处理
+   - 当 PE(TTM) > 80 且 利润增速 < 20% 时，risk_note 必须写明 "PE={pe} 远超利润增速={g}% 支撑"
+   - 当 20 日累计涨幅 > 50% 或 5 日 > 20% 时，high_position_risk 必须为 "high"，且 risk_note 必须写明 "近20日累计+{x}%，追高风险大"
+   - catalyst 字段：基于 context 中能观测到的信号推断（业绩预增/行业景气/资金承接/连板情绪/技术突破/无明显催化剂）
+   - reason 字段必须引用具体数值（如 "收盘 36.5 距推荐价 36.38 涨 0.3%"、"PE 229 持续高估"），禁止只写"走势符合预期"这类无信息量描述
 
 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
 """
@@ -1634,6 +2007,11 @@ _REC_MORNING_SYSTEM_PROMPT = """\
    - confidence: 信心度 0-1 之间的小数
    - sector: 所属行业/板块
    - score: 综合评分 1-10
+   - catalyst: 催化剂类型 "业绩预增"/"行业景气"/"资金承接"/"连板情绪"/"技术突破"/"无明显催化剂"
+   - high_position_risk: 高位风险 "high"/"medium"/"low"
+   - risk_note: 具体风险描述（必须含数值）
+   - pe_ttm_echo: 回显你读到的 PE(TTM) 数值（便于审计）
+   - cum_gain_20d_echo: 回显你读到的近20日累计涨幅%（便于审计）
 
 2. 推荐原则：
    - 重点参考集合竞价数据、量化分、信号标签和风险标签，优先选择可成交、有换手、有板块共振的股票
@@ -1645,8 +2023,21 @@ _REC_MORNING_SYSTEM_PROMPT = """\
    - 不推荐ST、*ST股票
    - 只推荐沪深主板股票（代码以60或00开头），禁止推荐科创板(688)、创业板(30)、北交所(8/4开头）
    - 买入区间应基于竞价价格合理设定，buy_low 不高于竞价价，buy_high 可略高于竞价价
-   - 止损价一般设在买入区间下限下方 2-5%
    - 止盈价和目标价应体现合理盈利预期
+
+2.5 估值与安全边际原则（强制，违反将导致推荐被拒绝）：
+   - 必须读取 context 行尾的 "| PE.. PB.. 市值.. 累计5日.. 累计20日.. 营收.. 利润.. 风险标签:[..]" 等指标，禁止忽略；缺失值（行尾无对应字段）按 "无法评估" 处理
+   - 当 PE(TTM) > 80 且 利润增速 < 20% 时，视作"高估值无业绩支撑"，confidence 上限 0.5，risk_note 必须写明 "PE={pe} 远超利润增速={g}% 支撑"
+   - 当 20 日累计涨幅 > 50% 或 5 日 > 20% 时，必须把 high_position_risk 标为 "high"，且 buy_low 必须 <= 现价 × (1 - 累计涨幅×0.003)，禁止把 buy_low 设在现价 2% 以内
+   - 止损位 stop_loss_price：高位股（high_position_risk=high）必须 <= buy_low × 0.96，普通股 <= buy_low × 0.97；禁止沿用"买入区间下方 2-5%"这种宽泛规则
+   - 催化剂识别（catalyst）：基于 context 中能观测到的信号推断，禁止臆造。允许类型与推断依据：
+       "业绩预增"  - 利润增速 > 50% 或 ROE > 15%
+       "行业景气"  - source 标签含 "行业领涨"
+       "资金承接"  - source 含 "主力净流入TOP" 或主力净流入显著为正
+       "连板情绪"  - 连板 >= 2
+       "技术突破"  - 累计 5 日涨幅 > 15% 且 PE < 80（非情绪型上涨）
+       "无明显催化剂" - 以上都不满足，confidence 必须 <= 0.4
+   - reason 字段必须包含至少 2 条理由，其中至少 1 条引用具体数值（如 "PE 42.9 处于中性"、"近 20 日累计 +52%"、"竞价买卖比 3.5"），禁止只写"上午收阳线涨1.37%"这类无信息量描述
 
 3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
 """
@@ -1672,6 +2063,11 @@ _REC_MIDDAY_SYSTEM_PROMPT = """\
    - confidence: 信心度 0-1 之间的小数
    - sector: 所属行业/板块
    - score: 综合评分 1-10
+   - catalyst: 催化剂类型 "业绩预增"/"行业景气"/"资金承接"/"连板情绪"/"技术突破"/"无明显催化剂"
+   - high_position_risk: 高位风险 "high"/"medium"/"low"
+   - risk_note: 具体风险描述（必须含数值）
+   - pe_ttm_echo: 回显你读到的 PE(TTM) 数值（便于审计）
+   - cum_gain_20d_echo: 回显你读到的近20日累计涨幅%（便于审计）
 
 2. 推荐原则：
    - 必须明确推荐逻辑属于“半日强势延续”或“午后低吸”，不要把两类策略混写
@@ -1682,8 +2078,21 @@ _REC_MIDDAY_SYSTEM_PROMPT = """\
    - 不推荐ST、*ST股票
    - 只推荐沪深主板股票（代码以60或00开头），禁止推荐科创板(688)、创业板(30)、北交所(8/4开头）
    - 买入区间应基于上午收盘价合理设定，buy_low 不高于当前价，buy_high 可略高于当前价
-   - 止损价一般设在买入区间下限下方 2-5%
    - 止盈价和目标价应体现合理盈利预期
+
+2.5 估值与安全边际原则（强制，违反将导致推荐被拒绝）：
+   - 必须读取 context 行尾的 "| PE.. PB.. 市值.. 累计5日.. 累计20日.. 营收.. 利润.. 风险标签:[..]" 等指标，禁止忽略；缺失值按 "无法评估" 处理
+   - 当 PE(TTM) > 80 且 利润增速 < 20% 时，视作"高估值无业绩支撑"，confidence 上限 0.5，risk_note 必须写明 "PE={pe} 远超利润增速={g}% 支撑"
+   - 当 20 日累计涨幅 > 50% 或 5 日 > 20% 时，必须把 high_position_risk 标为 "high"，且 buy_low 必须 <= 现价 × (1 - 累计涨幅×0.003)，禁止把 buy_low 设在现价 2% 以内
+   - 止损位 stop_loss_price：高位股（high_position_risk=high）必须 <= buy_low × 0.96，普通股 <= buy_low × 0.97；禁止沿用"买入区间下方 2-5%"这种宽泛规则
+   - 催化剂识别（catalyst）：基于 context 中能观测到的信号推断，禁止臆造。允许类型与推断依据：
+       "业绩预增"  - 利润增速 > 50% 或 ROE > 15%
+       "行业景气"  - source 标签含 "行业领涨"
+       "资金承接"  - source 含 "主力净流入TOP" 或主力净流入显著为正
+       "连板情绪"  - 连板 >= 2
+       "技术突破"  - 累计 5 日涨幅 > 15% 且 PE < 80（非情绪型上涨）
+       "无明显催化剂" - 以上都不满足，confidence 必须 <= 0.4
+   - reason 字段必须包含至少 2 条理由，其中至少 1 条引用具体数值（如 "PE 42.9 处于中性"、"近 20 日累计 +52%"、"上午成交 3.2 亿"），禁止只写"上午收阳线涨1.37%"这类无信息量描述
 
 3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
 """
@@ -1709,6 +2118,11 @@ _REC_AFTERNOON_SYSTEM_PROMPT = """\
    - confidence: 信心度 0-1 之间的小数
    - sector: 所属行业/板块
    - score: 综合评分 1-10
+   - catalyst: 催化剂类型 "业绩预增"/"行业景气"/"资金承接"/"连板情绪"/"技术突破"/"无明显催化剂"
+   - high_position_risk: 高位风险 "high"/"medium"/"low"
+   - risk_note: 具体风险描述（必须含数值）
+   - pe_ttm_echo: 回显你读到的 PE(TTM) 数值（便于审计）
+   - cum_gain_20d_echo: 回显你读到的近20日累计涨幅%（便于审计）
 
 2. 推荐原则：
    - **核心信号：主力净流入金额大且占比高（>5%）** 说明资金真金白银介入，明日高开概率大
@@ -1722,9 +2136,21 @@ _REC_AFTERNOON_SYSTEM_PROMPT = """\
    - 振幅较大（>8%）但最终收阳线的，说明尾盘抢筹明显
    - 不推荐ST、*ST股票
    - 只推荐沪深主板股票（代码以60或00开头），禁止推荐科创板(688)、创业板(30)、北交所(8/4开头）
-   - 买入区间应基于尾盘价合理设定：buy_low 可略低于尾盘价（-1%~-2%），buy_high 可略高于尾盘价（+1%~+2%）
-   - 止损价一般设在买入区间下限下方 2-5%
    - 止盈价和目标价应体现明日高开的合理预期（如目标价 = 尾盘价 × 1.03~1.08）
+
+2.5 估值与安全边际原则（强制，违反将导致推荐被拒绝）：
+   - 必须读取 context 行尾的 "| PE.. PB.. 市值.. 累计5日.. 累计20日.. 营收.. 利润.. 风险标签:[..]" 等指标，禁止忽略；缺失值按 "无法评估" 处理
+   - 当 PE(TTM) > 80 且 利润增速 < 20% 时，视作"高估值无业绩支撑"，confidence 上限 0.5，risk_note 必须写明 "PE={pe} 远超利润增速={g}% 支撑"
+   - 当 20 日累计涨幅 > 50% 或 5 日 > 20% 时，必须把 high_position_risk 标为 "high"，且 buy_low 必须 <= 现价 × (1 - 累计涨幅×0.003)，禁止把 buy_low 设在现价 2% 以内
+   - 止损位 stop_loss_price：高位股（high_position_risk=high）必须 <= buy_low × 0.96，普通股 <= buy_low × 0.97；禁止沿用"买入区间下方 2-5%"这种宽泛规则
+   - 催化剂识别（catalyst）：基于 context 中能观测到的信号推断，禁止臆造。允许类型与推断依据：
+       "业绩预增"  - 利润增速 > 50% 或 ROE > 15%
+       "行业景气"  - source 标签含 "行业领涨"
+       "资金承接"  - source 含 "主力净流入TOP" 或主力净流入显著为正
+       "连板情绪"  - 连板 >= 2
+       "技术突破"  - 累计 5 日涨幅 > 15% 且 PE < 80（非情绪型上涨）
+       "无明显催化剂" - 以上都不满足，confidence 必须 <= 0.4
+   - reason 字段必须包含至少 2 条理由，其中至少 1 条引用具体数值（如 "PE 42.9 处于中性"、"近 20 日累计 +52%"、"主力净流入 1.2 亿"），禁止只写"上午收阳线涨1.37%"这类无信息量描述
 
 3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
 """
@@ -1965,6 +2391,7 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
     auction_data: list[dict] | None = None
     midday_data: list[dict] | None = None
     afternoon_data: list[dict] | None = None
+    enriched_candidates_map: "dict[str, dict]" = {}
 
     if phase == "morning":
         candidates = _preselect_morning_candidates(trade_date)
@@ -1972,6 +2399,7 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
             logger.info("早盘候选股: %d 只，开始获取竞价数据", len(candidates))
             auction_data = _fetch_auction_data(candidates)
             logger.info("竞价数据获取完成: %d 只成功", len(auction_data or []))
+            enriched_candidates_map = {c["code"]: c for c in candidates}
 
     elif phase == "midday":
         candidates = _preselect_midday_candidates(trade_date)
@@ -1979,6 +2407,7 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
             logger.info("午盘候选股: %d 只，开始获取上午行情数据", len(candidates))
             midday_data = _fetch_morning_session_data(candidates)
             logger.info("上午行情数据获取完成: %d 只成功", len(midday_data or []))
+            enriched_candidates_map = {c["code"]: c for c in candidates}
 
     elif phase == "afternoon":
         candidates = _preselect_afternoon_candidates(trade_date)
@@ -1986,6 +2415,7 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
             logger.info("尾盘候选股: %d 只，开始获取尾盘行情数据", len(candidates))
             afternoon_data = _fetch_afternoon_session_data(candidates)
             logger.info("尾盘行情数据获取完成: %d 只成功", len(afternoon_data or []))
+            enriched_candidates_map = {c["code"]: c for c in candidates}
 
     elif phase == "review":
         # Update actual returns for morning and midday before generating review
@@ -1997,6 +2427,27 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
             update_recommendation_performance(trade_date, phase="midday")
         except Exception:
             logger.warning("午盘收益更新失败", exc_info=True)
+        # Review 从 DB 反查 enrichment 字段（沿用 morning/midday 落库的值）
+        _conn = get_connection()
+        try:
+            _rows = _conn.execute(
+                "SELECT code, pe_ttm, pe_static, pb, total_market_cap, "
+                "cum_gain_5d, cum_gain_20d, cum_gain_60d, "
+                "roe, revenue_growth, profit_growth, risk_tags "
+                "FROM stock_recommendation "
+                "WHERE trade_date = ? AND phase IN ('morning','midday','afternoon')",
+                (trade_date,),
+            ).fetchall()
+            for r in _rows:
+                d = dict(r)
+                tags_raw = d.pop("risk_tags", "") or ""
+                try:
+                    tags = json.loads(tags_raw) if tags_raw else []
+                except (ValueError, TypeError):
+                    tags = []
+                enriched_candidates_map[d["code"]] = {**d, "risk_proximity_tags": tags}
+        finally:
+            _conn.close()
 
     context = _get_rec_context(
         trade_date, phase,
@@ -2054,6 +2505,7 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
                 )
                 r.raise_for_status()
                 real_price: dict[str, float | None] = {}
+                prev_close_map: dict[str, float | None] = {}
                 for line in r.text.strip().split("\n"):
                     m = _SINA_HQ_PATTERN.match(line.strip())
                     if m:
@@ -2061,13 +2513,26 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
                         if len(parts) >= 4:
                             code = m.group(1)[2:]
                             real_price[code] = _parse_float(parts[3])
+                            prev_close_map[code] = _parse_float(parts[2])
+                now_dt = datetime.now()
+                stale_count = 0
+                override_count = 0
                 for rec in recs:
                     code = rec.get("code", "")
                     rp = real_price.get(code)
+                    pc = prev_close_map.get(code)
                     if rp is None:
+                        continue
+                    # Stale price protection: 实时价≈昨收且在交易时段 → 疑似停牌/数据未刷新
+                    if pc is not None and pc > 0 and _is_price_stale(rp, pc, trade_date, now_dt):
+                        rec["price_stale"] = 1
+                        rec["stale_reason"] = f"实时价{rp}≈昨收{pc}，疑似停牌/数据未刷新"
+                        stale_count += 1
+                        logger.warning("股 %s 实时价 %s ≈ 昨收 %s，跳过覆盖（保留 LLM 价）", code, rp, pc)
                         continue
                     llm_price = _parse_float(rec.get("current_price"))
                     rec["current_price"] = rp
+                    override_count += 1
                     # Adjust buy_low/buy_high proportionally when LLM price deviates
                     if llm_price and llm_price > 0:
                         ratio = rp / llm_price
@@ -2081,7 +2546,10 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
                         if tp: rec["target_price"] = _round2(tp * ratio)
                         if sl: rec["stop_loss_price"] = _round2(sl * ratio)
                         if tk: rec["take_profit_price"] = _round2(tk * ratio)
-                logger.info("覆盖 %d 只推荐股的 current_price 及买入区间为实时价格", sum(1 for c in codes if c in real_price))
+                logger.info(
+                    "覆盖 %d 只推荐股的 current_price 为实时价格，%d 只疑似数据未刷新跳过",
+                    override_count, stale_count,
+                )
             except Exception:
                 logger.warning("实时价格覆盖失败，使用 LLM 生成价格", exc_info=True)
 
@@ -2091,16 +2559,35 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
         conn.execute("DELETE FROM stock_recommendation WHERE trade_date = ? AND phase = ?", (trade_date, phase))
 
         for rec in recs:
+            code = rec.get("code", "")
+            m = enriched_candidates_map.get(code, {})
+            # LLM echo 审计：若 LLM 回显的 pe_ttm 与 enrichment 真值差异 > 1，告警
+            llm_pe_echo = _parse_float(rec.get("pe_ttm_echo"))
+            true_pe = _parse_float(m.get("pe_ttm"))
+            if llm_pe_echo is not None and true_pe is not None and abs(llm_pe_echo - true_pe) > 1:
+                logger.warning(
+                    "股 %s LLM pe_ttm_echo=%.2f 与真值=%.2f 差异过大，可能未读取 context",
+                    code, llm_pe_echo, true_pe,
+                )
+            tags_value = m.get("risk_proximity_tags") or []
+            try:
+                tags_json = json.dumps(tags_value, ensure_ascii=False)
+            except (ValueError, TypeError):
+                tags_json = "[]"
             conn.execute(
                 """INSERT INTO stock_recommendation
                    (trade_date, code, name, reason, strategy, target_price, stop_loss_price,
                     risk_level, confidence, sector, score, model_used, status,
                     current_price, buy_low, buy_high, take_profit_price,
-                    phase, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?, ?,?,?)""",
+                    phase, created_at, updated_at,
+                    pe_ttm, pe_static, pb, total_market_cap,
+                    cum_gain_5d, cum_gain_20d, cum_gain_60d,
+                    roe, revenue_growth, profit_growth,
+                    catalyst, high_position_risk, risk_note, risk_tags, price_stale)
+                   VALUES (?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?, ?,?, ?,?,?,?,?, ?,?,?, ?,?,?, ?,?,?,?, ?)""",
                 (
                     trade_date,
-                    rec.get("code", ""),
+                    code,
                     rec.get("name", ""),
                     rec.get("reason", ""),
                     rec.get("strategy", ""),
@@ -2119,6 +2606,21 @@ def _run_recommendations_sync(trade_date: str, phase: str) -> dict:
                     phase,
                     now,
                     now,
+                    true_pe,
+                    _parse_float(m.get("pe_static")),
+                    _parse_float(m.get("pb")),
+                    _parse_float(m.get("total_market_cap")),
+                    _parse_float(m.get("cum_gain_5d")),
+                    _parse_float(m.get("cum_gain_20d")),
+                    _parse_float(m.get("cum_gain_60d")),
+                    _parse_float(m.get("roe")),
+                    _parse_float(m.get("revenue_growth")),
+                    _parse_float(m.get("profit_growth")),
+                    rec.get("catalyst", ""),
+                    rec.get("high_position_risk", ""),
+                    rec.get("risk_note", ""),
+                    tags_json,
+                    int(rec.get("price_stale") or 0),
                 ),
             )
         conn.commit()
