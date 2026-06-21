@@ -30,7 +30,6 @@ import {
 import StockLink from "../../components/StockLink";
 import type { LimitUpAnalysisItem } from "../../types";
 import { addFromRecommendation } from "../../api/watchlist";
-import { message } from "antd";
 
 const POSITIVE_COLOR = "#cf1322";
 

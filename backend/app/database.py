@@ -453,6 +453,60 @@ CREATE TABLE IF NOT EXISTS tomorrow_strategy (
 );
 CREATE INDEX IF NOT EXISTS idx_ts_date ON tomorrow_strategy(trade_date);
 CREATE INDEX IF NOT EXISTS idx_ts_status ON tomorrow_strategy(status);
+
+CREATE TABLE IF NOT EXISTS research_report (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    source        TEXT NOT NULL DEFAULT 'research_eastmoney',
+    title         TEXT NOT NULL,
+    url           TEXT UNIQUE NOT NULL,
+    report_type   TEXT NOT NULL DEFAULT 'stock',
+    org           TEXT DEFAULT '',
+    analyst       TEXT DEFAULT '',
+    rating        TEXT DEFAULT '',
+    target_price  REAL,
+    current_price REAL,
+    industry      TEXT DEFAULT '',
+    stock_codes   TEXT DEFAULT '[]',
+    publish_date  TEXT,
+    fetch_time    TEXT NOT NULL,
+    summary       TEXT DEFAULT '',
+    content       TEXT DEFAULT '',
+    extra         TEXT DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_rr_publish ON research_report(publish_date);
+CREATE INDEX IF NOT EXISTS idx_rr_type ON research_report(report_type);
+CREATE INDEX IF NOT EXISTS idx_rr_rating ON research_report(rating);
+CREATE INDEX IF NOT EXISTS idx_rr_stock_codes ON research_report(stock_codes);
+
+CREATE TABLE IF NOT EXISTS research_pick (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date         TEXT NOT NULL,
+    code               TEXT NOT NULL,
+    name               TEXT DEFAULT '',
+    report_count       INTEGER DEFAULT 0,
+    buy_rating_count   INTEGER DEFAULT 0,
+    avg_target_price   REAL,
+    upside_pct         REAL,
+    current_price      REAL,
+    org_count          INTEGER DEFAULT 0,
+    consensus_score    REAL DEFAULT 0,
+    ai_advice          TEXT DEFAULT '',
+    ai_buy_low         REAL,
+    ai_buy_high        REAL,
+    ai_stop_loss       REAL,
+    ai_catalyst        TEXT DEFAULT '',
+    ai_risk            TEXT DEFAULT '',
+    ai_analysis        TEXT DEFAULT '',
+    confidence         REAL DEFAULT 0,
+    score              REAL DEFAULT 0,
+    model_used         TEXT DEFAULT '',
+    status             TEXT DEFAULT 'pending',
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rp_date_code ON research_pick(trade_date, code);
+CREATE INDEX IF NOT EXISTS idx_rp_date ON research_pick(trade_date);
+CREATE INDEX IF NOT EXISTS idx_rp_advice ON research_pick(ai_advice);
 """
 
 

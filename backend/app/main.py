@@ -20,6 +20,7 @@ from app.api.stock_daily import router as stock_daily_router
 from app.api.stock_analysis import router as stock_analysis_router
 from app.api.watchlist import router as watchlist_router
 from app.api.tomorrow_strategy import router as tomorrow_strategy_router
+from app.api.research import router as research_router
 from app.config import CORS_ALLOWED_ORIGINS
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
@@ -37,6 +38,8 @@ from app.services.market_analysis import generate_daily_analysis
 from app.services.tomorrow_strategy import generate_tomorrow_strategy
 from app.services.watchlist_snapshot import snapshot_watchlist_daily
 from app.services.watchlist_analysis import generate_watchlist_analysis
+from app.services.research_sync import sync_research_reports
+from app.services.research_pick import generate_research_picks
 
 SYNC_INTERVAL_SECONDS = 300
 
@@ -92,6 +95,8 @@ JOBS: list[dict] = [
     {"id": "watchlist_daily_snapshot", "cron": "30 15 * * 1-5", "fn": lambda: snapshot_watchlist_daily(trigger="scheduled"), "desc": "自选股收盘快照"},
     {"id": "watchlist_morning_analysis", "cron": "30 9 * * 1-5", "fn": lambda: generate_watchlist_analysis(_today(), phase="morning"), "desc": "自选股早盘AI分析"},
     {"id": "watchlist_close_analysis", "cron": "35 15 * * 1-5", "fn": lambda: generate_watchlist_analysis(_today(), phase="close"), "desc": "自选股收盘AI分析"},
+    {"id": "research_sync", "cron": "0 16 * * 1-5", "fn": lambda: sync_research_reports(trigger="scheduled", days=3), "desc": "券商研报抓取"},
+    {"id": "research_pick_generation", "cron": "10 16 * * 1-5", "fn": lambda: generate_research_picks(phase="close"), "desc": "研报AI选股"},
 ]
 
 
@@ -138,3 +143,4 @@ app.include_router(stock_daily_router, prefix="/api/v1")
 app.include_router(stock_analysis_router, prefix="/api/v1")
 app.include_router(watchlist_router, prefix="/api/v1")
 app.include_router(tomorrow_strategy_router, prefix="/api/v1")
+app.include_router(research_router, prefix="/api/v1")

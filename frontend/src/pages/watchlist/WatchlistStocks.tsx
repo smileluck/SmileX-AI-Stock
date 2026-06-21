@@ -327,7 +327,7 @@ export default function WatchlistStocks() {
       key: "change_pct",
       width: 90,
       render: (v: number | null) => (
-        <Text style={{ color: pctColor(v)}>{fmtPct(v)}</Text>
+        <Text style={{ color: pctColor(v) }}>{fmtPct(v)}</Text>
       ),
     },
     {

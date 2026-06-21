@@ -13,6 +13,7 @@ _ENV_DEFAULTS = {
     "analysis": MODEL_ANALYSIS,
     "news_scorer": MODEL_NEWS_SCORER,
     "chat": MODEL_CHAT,
+    "research_pick": MODEL_ANALYSIS,
 }
 
 _CLIENT: OpenAI | None = None

@@ -17,6 +17,7 @@ import {
   PieChartOutlined,
   RocketOutlined,
   StarOutlined,
+  FileSearchOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -41,6 +42,7 @@ const menuItems = [
       { key: "/analysis/stock-recommendation", icon: <StockOutlined />, label: "个股推荐" },
       { key: "/analysis/limit-up", icon: <ThunderboltOutlined />, label: "涨停分析" },
       { key: "/analysis/strategy", icon: <RocketOutlined />, label: "明日策略" },
+      { key: "/analysis/research", icon: <FileSearchOutlined />, label: "研报选股" },
     ],
   },
   { key: "/news", icon: <ReadOutlined />, label: "资讯聚合" },

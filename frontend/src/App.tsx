@@ -19,6 +19,7 @@ import LimitUpAnalysis from "./pages/stock/LimitUpAnalysis";
 import StockHistory from "./pages/stock/StockHistory";
 import StrategyPage from "./pages/Strategy";
 import TomorrowStrategy from "./pages/TomorrowStrategy";
+import ResearchPickPage from "./pages/research/ResearchPick";
 import WatchlistStocks from "./pages/watchlist/WatchlistStocks";
 import WatchlistStockDetail from "./pages/watchlist/WatchlistStockDetail";
 import WatchlistSectors from "./pages/watchlist/WatchlistSectors";
@@ -39,6 +40,7 @@ function App() {
           <Route path="/analysis/stock-recommendation" element={<StockRecommendation />} />
           <Route path="/analysis/limit-up" element={<LimitUpAnalysis />} />
           <Route path="/analysis/strategy" element={<TomorrowStrategy />} />
+          <Route path="/analysis/research" element={<ResearchPickPage />} />
           <Route path="/sector" element={<Navigate to="/sector/today" replace />} />
           <Route path="/sector/today" element={<SectorOverview />} />
           <Route path="/sector/history" element={<SectorHistory />} />
