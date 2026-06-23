@@ -87,6 +87,19 @@ def _get_all_codes() -> list[str]:
         conn.close()
 
 
+def _get_all_market_codes() -> list[str]:
+    """拉取全 A 股代码列表（沪深主板 + 创业板 + 科创板，不含北交所）。"""
+    try:
+        df = ak.stock_zh_a_spot_em()
+    except Exception:
+        logger.warning("stock_zh_a_spot_em failed", exc_info=True)
+        return []
+    if df is None or df.empty:
+        return []
+    codes = df["代码"].astype(str).tolist()
+    return sorted(c for c in codes if c.startswith(("60", "00", "30", "688")))
+
+
 def _build_session() -> requests.Session:
     session = requests.Session()
     retry = Retry(total=3, backoff_factor=2, status_forcelist=[502, 503, 504])
@@ -384,7 +397,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     parser = argparse.ArgumentParser(description="Backfill stock_daily historical data")
-    parser.add_argument("--all", action="store_true", help="Backfill all A-share stocks")
+    parser.add_argument("--all", action="store_true", help="Backfill all stocks from latest snapshot")
+    parser.add_argument("--universe", choices=["watchlist", "all_market"], default="watchlist",
+                        help="watchlist (default): 自选+推荐过的股票; all_market: 全 A 股市场")
     parser.add_argument("--codes", type=str, help="Comma-separated stock codes")
     parser.add_argument("--days", type=int, default=120, help="Number of trading days (default: 120)")
     args = parser.parse_args()
@@ -392,6 +407,12 @@ if __name__ == "__main__":
     target_codes = None
     if args.codes:
         target_codes = [c.strip() for c in args.codes.split(",") if c.strip()]
+    elif args.universe == "all_market":
+        target_codes = _get_all_market_codes()
+        if not target_codes:
+            print("Failed to fetch all market codes. Check network/akshare.")
+            sys.exit(1)
+        print(f"Found {len(target_codes)} stocks from all market")
     elif args.all:
         target_codes = _get_all_codes()
         if not target_codes:

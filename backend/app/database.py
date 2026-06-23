@@ -507,6 +507,60 @@ CREATE TABLE IF NOT EXISTS research_pick (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rp_date_code ON research_pick(trade_date, code);
 CREATE INDEX IF NOT EXISTS idx_rp_date ON research_pick(trade_date);
 CREATE INDEX IF NOT EXISTS idx_rp_advice ON research_pick(ai_advice);
+
+CREATE TABLE IF NOT EXISTS backtest_run (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    strategy_type   TEXT NOT NULL,
+    params_json     TEXT NOT NULL,
+    universe        TEXT NOT NULL,
+    start_date      TEXT NOT NULL,
+    end_date        TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'done',
+    metrics_json    TEXT DEFAULT '{}',
+    error_msg       TEXT DEFAULT '',
+    created_at      TEXT NOT NULL,
+    finished_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bt_run_created ON backtest_run(created_at);
+
+CREATE TABLE IF NOT EXISTS backtest_trade (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          INTEGER NOT NULL,
+    trade_date      TEXT NOT NULL,
+    code            TEXT NOT NULL,
+    name            TEXT,
+    side            TEXT NOT NULL,
+    price           REAL,
+    shares          INTEGER,
+    amount          REAL,
+    cost            REAL,
+    reason          TEXT,
+    FOREIGN KEY(run_id) REFERENCES backtest_run(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_bt_trade_run ON backtest_trade(run_id);
+CREATE INDEX IF NOT EXISTS idx_bt_trade_date ON backtest_trade(trade_date);
+
+CREATE TABLE IF NOT EXISTS backtest_equity (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          INTEGER NOT NULL,
+    trade_date      TEXT NOT NULL,
+    equity          REAL NOT NULL,
+    cash            REAL NOT NULL,
+    position_value  REAL NOT NULL,
+    benchmark       REAL,
+    drawdown        REAL,
+    FOREIGN KEY(run_id) REFERENCES backtest_run(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_bt_eq_run ON backtest_equity(run_id);
+CREATE INDEX IF NOT EXISTS idx_bt_eq_date ON backtest_equity(trade_date);
+
+CREATE TABLE IF NOT EXISTS benchmark_daily (
+    code            TEXT NOT NULL,
+    trade_date      TEXT NOT NULL,
+    close           REAL NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
 """
 
 

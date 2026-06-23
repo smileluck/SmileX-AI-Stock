@@ -21,6 +21,7 @@ from app.api.stock_analysis import router as stock_analysis_router
 from app.api.watchlist import router as watchlist_router
 from app.api.tomorrow_strategy import router as tomorrow_strategy_router
 from app.api.research import router as research_router
+from app.api.backtest import router as backtest_router
 from app.config import CORS_ALLOWED_ORIGINS
 from app.database import init_db
 from app.services.scheduler import start_scheduler, shutdown_scheduler
@@ -144,3 +145,4 @@ app.include_router(stock_analysis_router, prefix="/api/v1")
 app.include_router(watchlist_router, prefix="/api/v1")
 app.include_router(tomorrow_strategy_router, prefix="/api/v1")
 app.include_router(research_router, prefix="/api/v1")
+app.include_router(backtest_router, prefix="/api/v1")

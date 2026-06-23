@@ -18,6 +18,7 @@ import StockAnalysis from "./pages/stock/StockAnalysis";
 import LimitUpAnalysis from "./pages/stock/LimitUpAnalysis";
 import StockHistory from "./pages/stock/StockHistory";
 import StrategyPage from "./pages/Strategy";
+import Backtest from "./pages/Backtest";
 import TomorrowStrategy from "./pages/TomorrowStrategy";
 import ResearchPickPage from "./pages/research/ResearchPick";
 import WatchlistStocks from "./pages/watchlist/WatchlistStocks";
@@ -57,6 +58,7 @@ function App() {
           <Route path="/news" element={<NewsPage />} />
           <Route path="/scheduler" element={<SchedulerPage />} />
           <Route path="/strategy" element={<StrategyPage />} />
+          <Route path="/backtest" element={<Backtest />} />
           <Route path="/ai-assistant" element={<Navigate to="/ai-assistant/llm-config" replace />} />
           <Route path="/ai-assistant/llm-config" element={<LLMConfig />} />
           <Route path="/ai-assistant/chat" element={<AIChat />} />
