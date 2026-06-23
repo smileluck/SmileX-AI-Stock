@@ -1527,77 +1527,65 @@ def _format_auction_context(auction_data: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 
 def _preselect_midday_candidates(trade_date: str) -> list[dict]:
-    """Select ~25 candidate stocks for midday recommendation."""
+    """午盘候选：上午盘实际强势股（涨幅启动 + 主力净流入为正）。
+
+    与早盘（盘前预期）口径完全错开，避免候选池重合导致重复计票。
+    采用两段式过滤：严格档（3–7%）候选不足 10 只时放宽下限到 2%。
+    """
+    raw = _fetch_main_fund_flow_rank(top_n=80)
+    if not raw:
+        logger.warning("午盘候选股预筛：主力净流入排行抓取为空")
+        return []
+
+    def _qualifying(r: dict, low_pct: float) -> bool:
+        chg = r.get("change_pct")
+        inflow = r.get("main_net_inflow")
+        inflow_pct = r.get("main_inflow_pct")
+        turnover = r.get("turnover_rate")
+        if chg is None or inflow is None:
+            return False
+        if not (low_pct <= chg <= 7.0):
+            return False
+        if inflow <= 0:
+            return False
+        if low_pct >= 3.0:
+            if inflow_pct is None or inflow_pct < 3:
+                return False
+            if turnover is None or not (2.0 <= turnover <= 18.0):
+                return False
+        return True
+
+    strict = [r for r in raw if _qualifying(r, 3.0)]
+    if len(strict) >= 10:
+        chosen = strict
+        logger.info("午盘候选严格档：%d 只（涨幅3-7%%）", len(strict))
+    else:
+        relaxed = [r for r in raw if _qualifying(r, 2.0)]
+        chosen = relaxed
+        logger.info(
+            "午盘候选放宽档：%d 只（严格档仅 %d 只，下限放宽到 2%%）",
+            len(relaxed), len(strict),
+        )
+
     candidates: dict[str, dict] = {}
-
-    # Source 1: Morning recommendations that are performing well
-    conn = get_connection()
-    try:
-        rows = conn.execute(
-            "SELECT code, name, current_price, buy_low, buy_high FROM stock_recommendation "
-            "WHERE trade_date = ? AND phase = 'morning'",
-            (trade_date,),
-        ).fetchall()
-    finally:
-        conn.close()
-    for r in rows:
-        if not _is_main_board(r["code"]):
+    for r in chosen:
+        code = r["code"]
+        if not _is_main_board(code):
             continue
-        candidates[r["code"]] = {
-            "code": r["code"],
+        candidates[code] = {
+            "code": code,
             "name": r["name"],
-            "source": "早盘推荐",
+            "current": r.get("current"),
+            "change_pct": r.get("change_pct"),
+            "main_net_inflow": r.get("main_net_inflow"),
+            "main_inflow_pct": r.get("main_inflow_pct"),
+            "turnover_rate": r.get("turnover_rate"),
+            "amount": r.get("amount"),
+            "source": (
+                f"上午强势(涨{r.get('change_pct') or 0:.1f}%/"
+                f"主力流入{(r.get('main_net_inflow') or 0) / 1e8:.2f}亿)"
+            ),
         }
-
-    # Source 2: Yesterday's limit-up stocks (continuation plays)
-    conn = get_connection()
-    try:
-        prev_row = conn.execute(
-            "SELECT MAX(trade_date) as d FROM limit_up_snapshot WHERE trade_date < ?",
-            (trade_date,),
-        ).fetchone()
-        lu_date = prev_row["d"] if prev_row and prev_row["d"] else trade_date
-        rows = conn.execute(
-            "SELECT code, name, limit_up_times, sector, amount "
-            "FROM limit_up_snapshot WHERE trade_date = ? ORDER BY amount DESC LIMIT 10",
-            (lu_date,),
-        ).fetchall()
-    finally:
-        conn.close()
-    for r in rows:
-        if r["code"] not in candidates and _is_main_board(r["code"]):
-            candidates[r["code"]] = {
-                "code": r["code"],
-                "name": r["name"],
-                "source": f"昨日涨停(连板{r['limit_up_times'] or 1})",
-            }
-
-    # Source 3: Hot sector leading stocks
-    conn = get_connection()
-    try:
-        sec_row = conn.execute(
-            "SELECT MAX(trade_date) as d FROM sector_snapshot_item WHERE trade_date <= ?",
-            (trade_date,),
-        ).fetchone()
-        sec_date = sec_row["d"] if sec_row and sec_row["d"] else trade_date
-        rows = conn.execute(
-            "SELECT leading_stock, leading_stock_code, name "
-            "FROM sector_snapshot_item "
-            "WHERE trade_date = ? AND sector_type = 'industry' "
-            "AND leading_stock_code IS NOT NULL "
-            "ORDER BY change_pct DESC LIMIT 8",
-            (sec_date,),
-        ).fetchall()
-    finally:
-        conn.close()
-    for r in rows:
-        code = r["leading_stock_code"]
-        if code and code not in candidates and _is_main_board(code):
-            candidates[code] = {
-                "code": code,
-                "name": r["leading_stock"],
-                "source": f"行业领涨({r['name']})",
-            }
 
     try:
         zt_codes_midday = {it["code"] for it in fetch_limit_up_stocks(trade_date)}
@@ -2044,36 +2032,37 @@ _REC_MORNING_SYSTEM_PROMPT = """\
 
 
 _REC_MIDDAY_SYSTEM_PROMPT = """\
-你是一位资深A股投资顾问，负责根据上午盘面数据为用户挑选午后有潜力的个股。
+你是一位资深A股投资顾问，负责基于上午盘实际资金行为筛选出的强势股，为用户挑选午后有潜力的个股。
+
+候选股池已经过严格筛选——全部为上午盘涨幅 2%-7%（已启动但未透支）、主力净流入为正的真实强势股。你的任务不是判断是否强势（已经确认），而是聚焦下午能否延续、合理买入区间、风险点。
 
 请根据以下上午盘面数据和市场信息，优先参考量化分、信号标签和风险标签，推荐 3-6 只午后有潜力的个股。要求：
 
 1. 每只股票必须包含以下字段，以 JSON 数组格式输出：
-   - code: 股票代码（如 "600519"）
+   - code: 股票代码（如 600519）
    - name: 股票名称
    - reason: 推荐理由（50-100字，重点结合上午盘面表现和午后预期分析）
-   - strategy: 操作策略（如 "午盘追涨"、"午后低吸"、"半日强势延续"、"午后反弹"）
+   - strategy: 操作策略（如 午盘追涨 / 午后低吸 / 半日强势延续 / 午后反弹）
    - current_price: 当前价格（根据上午行情数据填写）
    - buy_low: 建议买入区间下限
    - buy_high: 建议买入区间上限
    - target_price: 目标价
    - stop_loss_price: 止损价
    - take_profit_price: 止盈价
-   - risk_level: 风险等级 "low"/"medium"/"high"
+   - risk_level: 风险等级 low / medium / high
    - confidence: 信心度 0-1 之间的小数
    - sector: 所属行业/板块
    - score: 综合评分 1-10
-   - catalyst: 催化剂类型 "业绩预增"/"行业景气"/"资金承接"/"连板情绪"/"技术突破"/"无明显催化剂"
-   - high_position_risk: 高位风险 "high"/"medium"/"low"
+   - catalyst: 催化剂类型 业绩预增 / 行业景气 / 资金承接 / 连板情绪 / 技术突破 / 无明显催化剂
+   - high_position_risk: 高位风险 high / medium / low
    - risk_note: 具体风险描述（必须含数值）
    - pe_ttm_echo: 回显你读到的 PE(TTM) 数值（便于审计）
    - cum_gain_20d_echo: 回显你读到的近20日累计涨幅%（便于审计）
 
 2. 推荐原则：
-   - 必须明确推荐逻辑属于“半日强势延续”或“午后低吸”，不要把两类策略混写
-   - 延续型优先选择量化分高、上午涨幅 1%-5%、成交额达标、阳线确认且风险标签少的股票
-   - 低吸型优先选择强势来源明确、回踩未破关键区间、高位回落可控且板块仍强的股票
-   - 早盘推荐的股票中，若上午跌破止损、阴线走弱或风险标签较多，应降低评分或不再推荐
+   - 必须明确推荐逻辑属于半日强势延续或午后低吸，不要把两类策略混写
+   - 延续型优先选择量化分高、上午涨幅稳健（3%-7%）、成交额达标、阳线确认且风险标签少的股票
+   - 低吸型优先选择上午涨幅 2%-3% 的温和启动股，回踩未破关键区间、板块仍强的标的
    - 关注上午板块轮动方向，午后可能继续发酵的热点板块龙头优先
    - 不推荐ST、*ST股票
    - 只推荐沪深主板股票（代码以60或00开头），禁止推荐科创板(688)、创业板(30)、北交所(8/4开头）
@@ -2081,18 +2070,18 @@ _REC_MIDDAY_SYSTEM_PROMPT = """\
    - 止盈价和目标价应体现合理盈利预期
 
 2.5 估值与安全边际原则（强制，违反将导致推荐被拒绝）：
-   - 必须读取 context 行尾的 "| PE.. PB.. 市值.. 累计5日.. 累计20日.. 营收.. 利润.. 风险标签:[..]" 等指标，禁止忽略；缺失值按 "无法评估" 处理
-   - 当 PE(TTM) > 80 且 利润增速 < 20% 时，视作"高估值无业绩支撑"，confidence 上限 0.5，risk_note 必须写明 "PE={pe} 远超利润增速={g}% 支撑"
-   - 当 20 日累计涨幅 > 50% 或 5 日 > 20% 时，必须把 high_position_risk 标为 "high"，且 buy_low 必须 <= 现价 × (1 - 累计涨幅×0.003)，禁止把 buy_low 设在现价 2% 以内
-   - 止损位 stop_loss_price：高位股（high_position_risk=high）必须 <= buy_low × 0.96，普通股 <= buy_low × 0.97；禁止沿用"买入区间下方 2-5%"这种宽泛规则
+   - 必须读取 context 行尾的 PE/PB/市值/累计5日/累计20日/营收/利润/风险标签 等指标，禁止忽略；缺失值按 无法评估 处理
+   - 当 PE(TTM) > 80 且 利润增速 < 20% 时，视作高估值无业绩支撑，confidence 上限 0.5，risk_note 必须写明 PE 远超利润增速
+   - 当 20 日累计涨幅 > 50% 或 5 日 > 20% 时，必须把 high_position_risk 标为 high，且 buy_low 必须 <= 现价 × (1 - 累计涨幅×0.003)，禁止把 buy_low 设在现价 2% 以内
+   - 止损位 stop_loss_price：高位股（high_position_risk=high）必须 <= buy_low × 0.96，普通股 <= buy_low × 0.97；禁止沿用买入区间下方 2-5% 这种宽泛规则
    - 催化剂识别（catalyst）：基于 context 中能观测到的信号推断，禁止臆造。允许类型与推断依据：
-       "业绩预增"  - 利润增速 > 50% 或 ROE > 15%
-       "行业景气"  - source 标签含 "行业领涨"
-       "资金承接"  - source 含 "主力净流入TOP" 或主力净流入显著为正
-       "连板情绪"  - 连板 >= 2
-       "技术突破"  - 累计 5 日涨幅 > 15% 且 PE < 80（非情绪型上涨）
-       "无明显催化剂" - 以上都不满足，confidence 必须 <= 0.4
-   - reason 字段必须包含至少 2 条理由，其中至少 1 条引用具体数值（如 "PE 42.9 处于中性"、"近 20 日累计 +52%"、"上午成交 3.2 亿"），禁止只写"上午收阳线涨1.37%"这类无信息量描述
+       业绩预增  - 利润增速 > 50% 或 ROE > 15%
+       行业景气  - source 标签含 行业领涨
+       资金承接  - source 含 上午强势 或主力净流入显著为正
+       连板情绪  - 连板 >= 2
+       技术突破  - 累计 5 日涨幅 > 15% 且 PE < 80（非情绪型上涨）
+       无明显催化剂 - 以上都不满足，confidence 必须 <= 0.4
+   - reason 字段必须包含至少 2 条理由，其中至少 1 条引用具体数值（如 PE 42.9 处于中性 / 近 20 日累计 +52% / 上午成交 3.2 亿），禁止只写上午收阳线涨1.37% 这类无信息量描述
 
 3. 输出格式：严格用 ```json ``` 包裹的 JSON 数组，不要输出其他内容。
 """
