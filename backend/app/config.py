@@ -17,6 +17,9 @@ MODEL_ANALYSIS = os.getenv("MODEL_ANALYSIS", "MiniMax-M3")
 MODEL_NEWS_SCORER = os.getenv("MODEL_NEWS_SCORER", "MiniMax-M3")
 MODEL_CHAT = os.getenv("MODEL_CHAT", "MiniMax-M3")
 
+LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "3"))
+LLM_QUEUE_TIMEOUT = float(os.getenv("LLM_QUEUE_TIMEOUT", "300"))
+
 # CORS：逗号分隔的 origin 列表；"*" 表示放开（仅本地/开发用）
 _CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "*").strip()
 if _CORS_RAW == "*":

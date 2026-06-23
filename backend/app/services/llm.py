@@ -1,13 +1,27 @@
 import json
 import logging
 import re
+import threading
 import time
 
 from openai import OpenAI
 
-from app.config import LITELLM_PROXY_URL, LITELLM_MASTER_KEY, MODEL_ANALYSIS, MODEL_NEWS_SCORER, MODEL_CHAT
+from app.config import (
+    LITELLM_PROXY_URL,
+    LITELLM_MASTER_KEY,
+    MODEL_ANALYSIS,
+    MODEL_NEWS_SCORER,
+    MODEL_CHAT,
+    LLM_MAX_CONCURRENCY,
+    LLM_QUEUE_TIMEOUT,
+)
 
 logger = logging.getLogger(__name__)
+
+_SEMAPHORE = threading.BoundedSemaphore(LLM_MAX_CONCURRENCY)
+_STATS_LOCK = threading.Lock()
+_ACTIVE = 0
+_WAITING = 0
 
 _ENV_DEFAULTS = {
     "analysis": MODEL_ANALYSIS,
@@ -70,13 +84,27 @@ def get_model_for_function(function_key: str) -> str:
 
 
 def chat(messages: list[dict], model: str | None = None, **kwargs) -> str:
-    client = _get_client()
-    response = client.chat.completions.create(
-        model=model or _resolve_model("chat"),
-        messages=messages,
-        **kwargs,
-    )
-    return response.choices[0].message.content
+    global _ACTIVE, _WAITING
+    with _STATS_LOCK:
+        _WAITING += 1
+    acquired = _SEMAPHORE.acquire(timeout=LLM_QUEUE_TIMEOUT)
+    with _STATS_LOCK:
+        _WAITING -= 1
+        if not acquired:
+            raise TimeoutError(f"LLM queue timeout after {LLM_QUEUE_TIMEOUT}s")
+        _ACTIVE += 1
+    try:
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=model or _resolve_model("chat"),
+            messages=messages,
+            **kwargs,
+        )
+        return response.choices[0].message.content
+    finally:
+        with _STATS_LOCK:
+            _ACTIVE -= 1
+        _SEMAPHORE.release()
 
 
 def analysis_chat(messages: list[dict], **kwargs) -> str:
@@ -99,6 +127,15 @@ def test_connection() -> dict:
         return {"success": True, "models": model_ids}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def get_concurrency_stats() -> dict:
+    with _STATS_LOCK:
+        return {
+            "max": LLM_MAX_CONCURRENCY,
+            "active": _ACTIVE,
+            "waiting": _WAITING,
+        }
 
 
 _FENCED_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)

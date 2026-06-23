@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.config import MODEL_ANALYSIS, MODEL_NEWS_SCORER, MODEL_CHAT
 from app.database import get_connection
-from app.services.llm import test_connection, invalidate_model_cache
+from app.services.llm import test_connection, invalidate_model_cache, get_concurrency_stats
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -93,3 +93,8 @@ def get_available_models():
     if result["success"]:
         return {"models": result["models"]}
     return {"models": [], "error": result.get("error")}
+
+
+@router.get("/model-config/concurrency")
+def get_concurrency():
+    return get_concurrency_stats()
