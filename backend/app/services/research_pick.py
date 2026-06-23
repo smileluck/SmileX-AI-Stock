@@ -16,17 +16,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 阈值与权重（可调）
 # ---------------------------------------------------------------------------
-LOOKBACK_DAYS = 14
-MIN_ORG_COUNT = 1          # 至少 1 家机构覆盖（研报覆盖本身已稀有，先放宽）
-MIN_BUY_RATING = 1         # 至少 1 个买入/增持评级
-MIN_UPSIDE_PCT = 10.0      # 目标价空间 ≥ 10%（仅有目标价的样本参与）
+LOOKBACK_DAYS = 90         # 半年内机构共识更稳定，14 天数据不足以支撑共识筛选
+MIN_ORG_COUNT = 3          # 至少 3 家机构覆盖（"机构普遍看好"）
+MIN_BUY_RATING = 2         # 至少 2 个买入/增持评级
+MIN_UPSIDE_PCT = 10.0      # 有目标价的样本空间 ≥ 10%（仅作加分，不作硬过滤）
+MAX_GAIN_60D = 30.0        # 60 日涨幅 ≤ 30%（"未大幅上涨"，避免追高）
+TOP_PRE_FILTER = 60        # 拉历史 K 线前的预筛上限（控制新浪接口调用量）
 TOP_N_CANDIDATES = 25      # AI 分析候选数上限
 AI_BATCH_SIZE = 6          # AI 单批分析股票数
 
-# 共识分权重
+# 共识分权重：买入数 + 机构数 + 涨幅安全垫（去掉 upside_pct，目标价覆盖仅 3%）
 W_BUY = 0.4
-W_UPSIDE = 0.3
 W_ORG = 0.3
+W_SAFETY = 0.3
 
 # 买入类评级（与 sources/research_eastmoney.py:BUY_LIKE_RATINGS 一致）
 BUY_LIKE_RATINGS = ("买入", "增持")
@@ -92,14 +94,67 @@ def _get_latest_close(code: str) -> float | None:
     return row["close"] if row else None
 
 
+def _fetch_history_gain(code: str, days: int = 60) -> dict | None:
+    """从新浪 K 线接口拉历史，返回 60 日涨幅 + 高点回撤。
+
+    直接请求接口并解析 var=(<json>) 格式（不复用 backfill_daily._fetch_hist_sina，
+    该函数依赖的正则有 bug）。Returns:
+        {"latest", "oldest", "gain_pct", "high", "drawdown_from_high"} 或 None
+    """
+    import re
+    import requests
+    try:
+        # 6 位代码 → 新浪符号
+        if code.startswith(("6", "5", "9")):
+            sina_code = f"sh{code}"
+        elif code.startswith(("0", "3", "2")):
+            sina_code = f"sz{code}"
+        elif code.startswith(("8", "4")):
+            sina_code = f"bj{code}"
+        else:
+            sina_code = f"sz{code}"
+
+        resp = requests.get(
+            "https://quotes.sina.cn/cn/api/jsonp_v2.php/var=/CN_MarketDataService.getKLineData",
+            params={"symbol": sina_code, "scale": 240, "ma": "no", "datalen": days + 15},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn/"},
+            timeout=10,
+        )
+        # 解析 var=([{"day":"...","close":"..."}, ...]) 格式
+        m = re.search(r"\((\[.*?\])\)", resp.text, re.DOTALL)
+        if not m:
+            return None
+        records = json.loads(m.group(1))
+        if not records or len(records) < 5:
+            return None
+
+        records = records[-days:]
+        latest = float(records[-1]["close"])
+        oldest = float(records[0]["close"])
+        high = max(float(r["high"]) for r in records if r.get("high"))
+        gain_pct = (latest - oldest) / oldest * 100 if oldest > 0 else 0
+        drawdown = (latest - high) / high * 100 if high > 0 else 0
+        return {
+            "latest": latest,
+            "oldest": oldest,
+            "gain_pct": round(gain_pct, 2),
+            "high": high,
+            "drawdown_from_high": round(drawdown, 2),
+        }
+    except Exception:
+        logger.debug("[research_pick] fetch history gain failed for %s", code, exc_info=True)
+        return None
+
+
 def _stage_filter(days: int = LOOKBACK_DAYS) -> list[dict]:
     """阶段1：规则过滤。
 
-    从近 N 天个股研报中聚合：
-    - 至少 MIN_BUY_RATING 个买入类评级
-    - 至少 MIN_ORG_COUNT 家机构覆盖
-    返回候选股列表，附带 report_count/buy_rating_count/org_count/avg_target_price。
-    现价优先取 stock_daily.close；缺失则批量从新浪接口实时取（收盘后取的就是收盘价）。
+    流程：
+    1. SQL 聚合：org_count >= MIN_ORG_COUNT 且 buy_rating_count >= MIN_BUY_RATING
+    2. 预筛 TOP_PRE_FILTER 只（按 buy_rating_count + org_count 排）
+    3. 对预筛候选批量补现价（stock_daily → 新浪实时接口）
+    4. 对预筛候选拉 60 日 K 线，过滤 gain_pct <= MAX_GAIN_60D
+    5. 算 upside_pct（有目标价的样本）
     """
     with db_session() as conn:
         rows = conn.execute(
@@ -117,9 +172,13 @@ def _stage_filter(days: int = LOOKBACK_DAYS) -> list[dict]:
             GROUP BY je.value
             HAVING buy_rating_count >= ? AND org_count >= ?
             ORDER BY buy_rating_count DESC, org_count DESC
+            LIMIT ?
             """,
-            (f"-{days} days", MIN_BUY_RATING, MIN_ORG_COUNT),
+            (f"-{days} days", MIN_BUY_RATING, MIN_ORG_COUNT, TOP_PRE_FILTER),
         ).fetchall()
+
+    if not rows:
+        return []
 
     # 第一遍：取 stock_daily 现价，记录需要从新浪补的代码
     pending_codes: list[str] = []
@@ -139,7 +198,7 @@ def _stage_filter(days: int = LOOKBACK_DAYS) -> list[dict]:
         if not latest_close:
             pending_codes.append(code)
 
-    # 批量补现价（收盘后取的就是收盘价）
+    # 批量补现价
     if pending_codes:
         try:
             from app.services.stock import _fetch_stock_prices_from_sina
@@ -153,36 +212,67 @@ def _stage_filter(days: int = LOOKBACK_DAYS) -> list[dict]:
         except Exception:
             logger.exception("[research_pick] fetch prices from sina failed")
 
-    # 第二遍：算 upside，过滤
+    # 第二遍：拉 60 日 K 线，过滤涨幅，算 upside
     candidates = []
     for r in raw:
-        avg_target = r["avg_target_price"]
+        code = r["code"]
         latest_close = r["current_price"]
+
+        hist = _fetch_history_gain(code, days=60)
+        gain_60d = hist.get("gain_pct") if hist else None
+        drawdown = hist.get("drawdown_from_high") if hist else None
+
+        # 涨幅过滤：有数据时严格过滤；无数据时跳过过滤（不强求，留给 AI 判断）
+        if gain_60d is not None and gain_60d > MAX_GAIN_60D:
+            logger.info("[research_pick] %s filtered out: 60d gain=%.1f%% > %.0f%%",
+                        code, gain_60d, MAX_GAIN_60D)
+            continue
+
+        # 现价兜底：K 线现价 > stock_daily 现价 > 新浪实时
+        if not latest_close and hist:
+            latest_close = hist["latest"]
+
+        avg_target = r["avg_target_price"]
         upside_pct = None
         if latest_close and avg_target and latest_close > 0:
             upside_pct = round((avg_target - latest_close) / latest_close * 100, 2)
-            if upside_pct < MIN_UPSIDE_PCT:
-                continue
+
         candidates.append({
-            "code": r["code"],
+            "code": code,
             "report_count": r["report_count"],
             "org_count": r["org_count"],
             "buy_rating_count": r["buy_rating_count"],
             "avg_target_price": round(avg_target, 2) if avg_target else None,
             "current_price": latest_close,
             "upside_pct": upside_pct,
+            "gain_60d": gain_60d,
+            "drawdown_from_high": drawdown,
             "latest_publish": r["latest_publish"],
         })
     return candidates
 
 
 def _stage_rank(candidates: list[dict], top_n: int = TOP_N_CANDIDATES) -> list[dict]:
-    """阶段2：共识排序。"""
+    """阶段2：共识排序。
+
+    consensus_score = W_BUY * buy_rating_count
+                    + W_ORG * org_count
+                    + W_SAFETY * safety_score
+    其中 safety_score = max(0, 1 - gain_60d / MAX_GAIN_60D)
+    （涨幅越低分越高；涨超阈值的安全垫为 0；没数据的给中等 0.5）
+    """
     for c in candidates:
         buy = c["buy_rating_count"]
-        upside = c["upside_pct"] if c["upside_pct"] is not None else 0
         org = c["org_count"]
-        c["consensus_score"] = round(W_BUY * buy + W_UPSIDE * upside + W_ORG * org, 3)
+        gain = c.get("gain_60d")
+        if gain is None:
+            safety = 0.5
+        elif gain <= 0:
+            safety = 1.0
+        else:
+            safety = max(0.0, 1.0 - gain / MAX_GAIN_60D)
+        c["safety_score"] = round(safety, 3)
+        c["consensus_score"] = round(W_BUY * buy + W_ORG * org + W_SAFETY * safety, 3)
     candidates.sort(key=lambda x: x["consensus_score"], reverse=True)
     return candidates[:top_n]
 
@@ -410,7 +500,7 @@ def _pick_worker(trade_date: str, phase: str) -> None:
     """后台线程：跑完整三阶段流程，更新任务状态。"""
     key = (trade_date, phase)
     try:
-        _set_pick_stage(key, "阶段1：规则过滤（近 14 天研报）")
+        _set_pick_stage(key, f"阶段1：规则过滤（近 {LOOKBACK_DAYS} 天研报 + 60 日涨幅 ≤ {MAX_GAIN_60D:.0f}%）")
         candidates = _stage_filter(days=LOOKBACK_DAYS)
         logger.info("[research_pick] stage1 filtered: %d candidates", len(candidates))
 

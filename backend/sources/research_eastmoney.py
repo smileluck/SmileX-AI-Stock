@@ -69,31 +69,45 @@ class ResearchEastMoneySource(BaseSource):
 
     source_name = "research_eastmoney"
 
-    def fetch(self, days: int = 3, page_size: int = 100, max_pages: int = 5) -> pd.DataFrame:
+    def fetch(self, days: int = 3, page_size: int = 100, max_pages: int = 5, chunk_days: int = 14) -> pd.DataFrame:
         """抓取近 days 天的研报。返回标准 7 列 DataFrame。
+
+        days > chunk_days 时自动按 chunk_days 分块抓取，避免单次 API 返回上限
+        （单类型 max_pages * page_size 条上限，默认 500）。
 
         extra 字段内嵌：org/analyst/rating/target_price/current_price/
                        report_type/industry/stock_codes/raw_rating
         """
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        begin_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        # 计算时间窗口分块（从最近往前倒推）
+        chunks: list[tuple[str, str]] = []
+        end_dt = datetime.now()
+        remaining = days
+        while remaining > 0:
+            chunk = min(remaining, chunk_days)
+            start_dt = end_dt - timedelta(days=chunk)
+            chunks.append((start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")))
+            end_dt = start_dt
+            remaining -= chunk
 
         rows: list[dict] = []
-        for report_type, q_type in (("stock", 0), ("industry", 1)):
-            try:
-                items = self._fetch_one_type(
-                    begin_date=begin_date,
-                    end_date=end_date,
-                    q_type=q_type,
-                    page_size=page_size,
-                    max_pages=max_pages,
-                )
-                for item in items:
-                    parsed = self._parse_item(item, report_type)
-                    if parsed:
-                        rows.append(parsed)
-            except Exception:
-                logger.exception("[research_eastmoney] fetch %s failed", report_type)
+        seen_urls: set[str] = set()
+        for chunk_idx, (begin_date, end_date) in enumerate(chunks, 1):
+            for report_type, q_type in (("stock", 0), ("industry", 1)):
+                try:
+                    items = self._fetch_one_type(
+                        begin_date=begin_date,
+                        end_date=end_date,
+                        q_type=q_type,
+                        page_size=page_size,
+                        max_pages=max_pages,
+                    )
+                    for item in items:
+                        parsed = self._parse_item(item, report_type)
+                        if parsed and parsed["url"] not in seen_urls:
+                            seen_urls.add(parsed["url"])
+                            rows.append(parsed)
+                except Exception:
+                    logger.exception("[research_eastmoney] fetch chunk %d %s failed", chunk_idx, report_type)
 
         if not rows:
             return pd.DataFrame()
