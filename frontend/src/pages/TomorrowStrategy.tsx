@@ -260,13 +260,34 @@ export default function TomorrowStrategy() {
         ),
     },
     {
+      title: "当前价",
+      dataIndex: "current_price",
+      key: "current_price",
+      width: 90,
+      render: (v?: number | null) =>
+        v != null ? (
+          <span style={{ fontWeight: 600 }}>{fmtPrice(v)}</span>
+        ) : (
+          <span style={{ color: "#999" }}>--</span>
+        ),
+    },
+    {
       title: "关注区间",
       key: "watch_range",
-      width: 130,
-      render: (_: unknown, r: TomorrowStrategyStock) =>
-        r.watch_price_low != null && r.watch_price_high != null
-          ? `${fmtPrice(r.watch_price_low)} ~ ${fmtPrice(r.watch_price_high)}`
-          : "--",
+      width: 140,
+      render: (_: unknown, r: TomorrowStrategyStock) => {
+        if (r.watch_price_low == null || r.watch_price_high == null) return "--";
+        const text = `${fmtPrice(r.watch_price_low)} ~ ${fmtPrice(r.watch_price_high)}`;
+        return r.price_calibrated ? (
+          <Tooltip title="LLM 给价偏离真实价超过 20%，已按真实价兜底校准">
+            <Tag color="orange" style={{ marginRight: 0 }}>
+              {text}
+            </Tag>
+          </Tooltip>
+        ) : (
+          text
+        );
+      },
     },
     {
       title: "止损价",
@@ -460,7 +481,7 @@ export default function TomorrowStrategy() {
                         rowKey={(r, i) => `${r.code}-${i}`}
                         size="small"
                         pagination={{ pageSize: 20, showSizeChanger: false }}
-                        scroll={{ x: 1100 }}
+                        scroll={{ x: 1200 }}
                       />
                     ),
                 },

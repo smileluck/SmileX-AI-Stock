@@ -69,12 +69,21 @@ _SYSTEM_PROMPT = """\
 
 输出要求：
 1. sectors 数组选 TOP 5（行业或概念板块混合，按明日赚钱效应排序）
-2. sustainability 必须明确给出 high/medium/low 三档之一，并说明判断依据
-3. 每个推荐板块至少配 2-3 个代表个股，优先用候选池里出现过的代码；可以从 leading_stock / limit_up 板块字段补充
-4. 个股 role 字段限：领涨龙头 / 补涨标的 / 情绪先锋 / 趋势中军
-5. watch_price_low/high 必须基于当前价格给出合理区间，止损位用百分比换算（一般 -5% 至 -8%）
-6. risk_warnings 至少 3 条
-7. 整体输出必须为合法 JSON，不要在 JSON 外加多余文字
+2. sustainability 必须明确给出 high/medium/low 三档之一，并说明判断依据。判定规则（满足项数）：
+   - high（强）：同时满足 ≥3 项（连续上涨≥3日 + 今日涨幅≥3% + 主力净流入为正 + 板块新闻均分≥6 或 ≥3 条）
+   - medium（中）：满足 2 项
+   - low（弱）：满足 ≤1 项，或今日涨幅<1% / 主力净流出 / 板块高位放量滞涨
+   sustainability_reason 必须引用具体数字（连续天数、涨幅、主力净流入、新闻数/均分），不要空泛
+3. tomorrow_outlook 必须给出方向（"大概率继续走强" / "分化" / "退潮" / "冲高回落" 之一），并附一句基于资金/量能/新闻/连续性的具体理由，禁止套话
+4. 每个推荐板块至少配 2-3 个代表个股，优先用候选池里出现过的代码；可以从 leading_stock / limit_up 板块字段补充
+5. 个股 role 字段限：领涨龙头 / 补涨标的 / 情绪先锋 / 趋势中军
+6. **watch_price_low/high/stop_loss_price/target_price 必须严格基于候选池给出的"当前价"计算**：
+   - watch_price_low/high 围绕当前价 ±3% 给（追涨强势股可略高，低吸股可略低）
+   - stop_loss_price 一般为当前价 × 0.93~0.95（即 -5% 至 -7%）
+   - target_price 一般为当前价 × 1.08~1.15（即 +8% 至 +15%）
+   - 绝不允许使用记忆中的历史价格或凭空臆测
+7. risk_warnings 至少 3 条
+8. 整体输出必须为合法 JSON，不要在 JSON 外加多余文字
 """
 
 
@@ -195,14 +204,39 @@ def _collect_news_heat(trade_date: str, candidates: list[dict]) -> tuple[str, di
 
 
 def _collect_stock_pool(trade_date: str, candidates: list[dict]) -> tuple[str, list[dict]]:
-    """候选股池：limit_up_snapshot 板块字段 + sector_snapshot_item.leading_stock。"""
+    """候选股池：limit_up_snapshot 板块字段 + sector_snapshot_item.leading_stock。
+
+    每个候选股必须带 current_price / current_change_pct（来自 limit_up_snapshot.price 或
+    stock_daily.close），供 prompt 喂给 LLM，并由 _calibrate_stock_prices 后端兜底校准。
+    """
     conn = get_connection()
     try:
         limit_up_rows = conn.execute(
-            "SELECT code, name, sector, reason, change_pct, limit_up_times, amount "
+            "SELECT code, name, sector, reason, change_pct, limit_up_times, amount, price "
             "FROM limit_up_snapshot WHERE trade_date=? ORDER BY amount DESC LIMIT 80",
             (trade_date,),
         ).fetchall()
+
+        # 领涨股价格补查：从 stock_daily 取当日 close
+        leading_codes = [
+            c["leading_stock_code"]
+            for c in candidates[:10]
+            if c.get("leading_stock_code")
+        ]
+        leading_price_map: dict[str, tuple[float | None, float | None, str | None]] = {}
+        if leading_codes:
+            placeholders = ",".join("?" * len(leading_codes))
+            rows = conn.execute(
+                f"SELECT code, name, close, change_pct FROM stock_daily "
+                f"WHERE trade_date=? AND code IN ({placeholders})",
+                (trade_date, *leading_codes),
+            ).fetchall()
+            for r in rows:
+                leading_price_map[r["code"]] = (
+                    r["close"],
+                    r["change_pct"],
+                    r["name"],
+                )
     finally:
         conn.close()
 
@@ -221,6 +255,8 @@ def _collect_stock_pool(trade_date: str, candidates: list[dict]) -> tuple[str, l
                 "reason": r["reason"] or "",
                 "limit_up_times": r["limit_up_times"] or 1,
                 "amount_yi": (r["amount"] or 0) / 1e8,
+                "current_price": r["price"],
+                "current_change_pct": r["change_pct"],
                 "source": "limit_up",
             }
         )
@@ -230,14 +266,17 @@ def _collect_stock_pool(trade_date: str, candidates: list[dict]) -> tuple[str, l
         code = c.get("leading_stock_code")
         if code and code not in seen_codes:
             seen_codes.add(code)
+            price_info = leading_price_map.get(code)
             pool.append(
                 {
                     "code": code,
-                    "name": c.get("leading_stock") or "",
+                    "name": c.get("leading_stock") or (price_info[2] if price_info else ""),
                     "sector_hint": c["name"],
                     "reason": f"领涨{c['name']}",
                     "limit_up_times": 0,
                     "amount_yi": 0,
+                    "current_price": price_info[0] if price_info else None,
+                    "current_change_pct": price_info[1] if price_info else None,
                     "source": "leading_stock",
                 }
             )
@@ -248,8 +287,14 @@ def _collect_stock_pool(trade_date: str, candidates: list[dict]) -> tuple[str, l
     lines = [f"=== 候选个股池（共{len(pool)}只） ==="]
     for i, s in enumerate(pool[:40], 1):
         tag = "涨停" if s["source"] == "limit_up" else "领涨"
+        price_str = (
+            f"当前价{s['current_price']:.2f}元 涨幅{s['current_change_pct']:+.2f}%"
+            if s.get("current_price") is not None and s.get("current_change_pct") is not None
+            else "当前价未知"
+        )
         lines.append(
             f"{i}. [{tag}] {s['code']} {s['name']} "
+            f"{price_str} "
             f"板块:{s['sector_hint'] or 'N/A'} "
             f"理由:{s['reason'][:30] if s['reason'] else 'N/A'}"
         )
@@ -302,6 +347,81 @@ def _enrich_sectors_with_news(sectors: list[dict], trade_date: str) -> list[dict
                 for n in top_news
             ]
     return sectors
+
+
+def _calibrate_stock_prices(stocks: list[dict], pool: list[dict], trade_date: str) -> list[dict]:
+    """基于真实价校准 LLM 给的 watch/stop_loss/target。
+
+    候选池里带 current_price 的股票作为基准。若 LLM 给的 watch_price_low/high 中点
+    偏离基准价 ±20%，或者 stop_loss/target 也显著偏离（>30%），按规则覆盖。
+    校准同时在每个 stock 写入 current_price，便于前端展示。
+    候选池未覆盖的 code，回退查 stock_daily 当日 close 作为基准。
+    """
+    price_map: dict[str, float] = {}
+    for p in pool:
+        code = p.get("code")
+        price = p.get("current_price")
+        if code and price is not None and price > 0:
+            price_map[code] = float(price)
+
+    # 候选池未覆盖的 code，回退查 stock_daily 当日 close
+    missing_codes = [
+        s.get("code") for s in stocks
+        if s.get("code") and s["code"] not in price_map
+    ]
+    if missing_codes and trade_date:
+        try:
+            conn = get_connection()
+            try:
+                placeholders = ",".join("?" * len(missing_codes))
+                rows = conn.execute(
+                    f"SELECT code, close FROM stock_daily "
+                    f"WHERE trade_date=? AND code IN ({placeholders})",
+                    (trade_date, *missing_codes),
+                ).fetchall()
+                for r in rows:
+                    if r["close"] and r["close"] > 0:
+                        price_map[r["code"]] = float(r["close"])
+            finally:
+                conn.close()
+        except Exception:
+            logger.warning("stock_daily 价格补查失败", exc_info=True)
+
+    for s in stocks:
+        code = s.get("code")
+        if not code:
+            continue
+        base = price_map.get(code)
+        if base is None or base <= 0:
+            continue
+        s["current_price"] = round(base, 2)
+
+        def _num(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        wl = _num(s.get("watch_price_low"))
+        wh = _num(s.get("watch_price_high"))
+        mid = (wl + wh) / 2 if (wl and wh) else None
+        need_override = mid is None or abs(mid - base) / base > 0.20
+
+        if need_override:
+            s["watch_price_low"] = round(base * 1.00, 2)
+            s["watch_price_high"] = round(base * 1.03, 2)
+            s["stop_loss_price"] = round(base * 0.93, 2)
+            s["target_price"] = round(base * 1.10, 2)
+            s["price_calibrated"] = True
+        else:
+            sl = _num(s.get("stop_loss_price"))
+            if sl is None or abs(sl - base) / base > 0.30:
+                s["stop_loss_price"] = round(base * 0.93, 2)
+            tp = _num(s.get("target_price"))
+            if tp is None or abs(tp - base) / base > 0.30:
+                s["target_price"] = round(base * 1.10, 2)
+            s["price_calibrated"] = False
+    return stocks
 
 
 def _ensure_data_ready(trade_date: str) -> None:
@@ -466,9 +586,11 @@ def _run_strategy_sync(trade_date: str) -> dict:
         logger.warning("无法解析 LLM JSON 输出，落库 raw_text trade_date=%s", trade_date)
         parsed = {"sectors": [], "stocks": [], "strategy_advice": {}}
 
-    # Step 5: 后处理（补 top_events）
+    # Step 5: 后处理（补 top_events + 价格校准）
     if isinstance(parsed.get("sectors"), list):
         parsed["sectors"] = _enrich_sectors_with_news(parsed["sectors"], trade_date)
+    if isinstance(parsed.get("stocks"), list):
+        parsed["stocks"] = _calibrate_stock_prices(parsed["stocks"], pool, trade_date)
 
     # Step 6: 落库
     return _persist(trade_date, parsed, raw, model_used)
@@ -569,6 +691,8 @@ def _strategy_worker(trade_date: str) -> None:
             parsed = {"sectors": [], "stocks": [], "strategy_advice": {}}
         if isinstance(parsed.get("sectors"), list):
             parsed["sectors"] = _enrich_sectors_with_news(parsed["sectors"], trade_date)
+        if isinstance(parsed.get("stocks"), list):
+            parsed["stocks"] = _calibrate_stock_prices(parsed["stocks"], pool, trade_date)
         _persist(trade_date, parsed, raw, model_used)
 
         with _tasks_lock:

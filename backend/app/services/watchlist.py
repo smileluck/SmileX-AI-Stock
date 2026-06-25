@@ -165,14 +165,22 @@ def add_watchlist_stock(
     today = _today()
     now = _now()
 
-    # add_price 缺失时实时回填
+    # add_price 缺失时实时回填，并顺带把当日行情写入 watchlist_stock_daily
+    # （否则详情页会显示「暂无历史数据」，要等到 15:30 快照才有）
     resolved_price = add_price
-    if resolved_price is None:
-        spot = _fetch_spot(code)
-        if spot:
-            resolved_price = spot.get("close")
-            if not stock_name:
-                stock_name = spot.get("name", "") or stock_name
+    spot = _fetch_spot(code) if add_price is None else None
+    if spot:
+        resolved_price = spot.get("close")
+        if not stock_name:
+            stock_name = spot.get("name", "") or stock_name
+
+    daily_spot = spot or _fetch_spot(code)
+    if daily_spot:
+        from app.services.watchlist_snapshot import _insert_watchlist_daily
+        try:
+            _insert_watchlist_daily(daily_spot, today)
+        except Exception:
+            logger.warning("insert watchlist_daily failed on add for %s", code, exc_info=True)
 
     conn = get_connection()
     try:

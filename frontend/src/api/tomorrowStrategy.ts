@@ -29,10 +29,12 @@ export interface TomorrowStrategyStock {
   name?: string;
   role?: string;
   entry_logic?: string;
+  current_price?: number | null;
   watch_price_low?: number | null;
   watch_price_high?: number | null;
   stop_loss_price?: number | null;
   target_price?: number | null;
+  price_calibrated?: boolean;
   risk_tags?: string[];
 }
 
