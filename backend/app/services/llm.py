@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import logging
 import re
@@ -31,18 +32,36 @@ _ENV_DEFAULTS = {
 }
 
 _CLIENT: OpenAI | None = None
+_CLIENT_CREATED_AT: float = 0.0
+# 客户端每 1 小时重建一次：httpx 内部 keepalive 连接长时间复用后，
+# 中间网络设备/Proxy 侧可能已清理 TCP 但客户端不知，下次复用是 dead connection。
+# 重建前调用 close() 让 httpx 释放连接池。
+_CLIENT_TTL = 3600.0
+
 _MODEL_CACHE: dict[str, tuple[float, str]] = {}
 _MODEL_CACHE_TTL = 60.0
+
+# LLM 调用硬超时：OpenAI SDK timeout=180s 偶发在 socket 不响应时不生效，
+# 外层 ThreadPoolExecutor 强制 200s 兜底，超时后不等底层线程，立即释放信号量。
+_LLM_HARD_TIMEOUT = 200.0
 
 
 def _get_client() -> OpenAI:
     # timeout=180s：长输出 JSON（推荐/复盘/涨停）单次约 60-120s，60s 会超时；
     # max_retries=1：SDK 默认 2 次重试会把超时拉到 3x，单次失败快速反馈更可控。
-    global _CLIENT
-    if _CLIENT is None:
-        kwargs: dict = {"base_url": f"{LITELLM_PROXY_URL}/v1", "timeout": 180.0, "max_retries": 1}
-        kwargs["api_key"] = LITELLM_MASTER_KEY or "sk-placeholder"
-        _CLIENT = OpenAI(**kwargs)
+    global _CLIENT, _CLIENT_CREATED_AT
+    now = time.monotonic()
+    if _CLIENT is not None and now - _CLIENT_CREATED_AT <= _CLIENT_TTL:
+        return _CLIENT
+    if _CLIENT is not None:
+        try:
+            _CLIENT.close()
+        except Exception:
+            logger.debug("old OpenAI client close failed", exc_info=True)
+    kwargs: dict = {"base_url": f"{LITELLM_PROXY_URL}/v1", "timeout": 180.0, "max_retries": 1}
+    kwargs["api_key"] = LITELLM_MASTER_KEY or "sk-placeholder"
+    _CLIENT = OpenAI(**kwargs)
+    _CLIENT_CREATED_AT = now
     return _CLIENT
 
 
@@ -95,12 +114,28 @@ def chat(messages: list[dict], model: str | None = None, **kwargs) -> str:
         _ACTIVE += 1
     try:
         client = _get_client()
-        response = client.chat.completions.create(
-            model=model or _resolve_model("chat"),
-            messages=messages,
-            **kwargs,
-        )
-        return response.choices[0].message.content
+        target_model = model or _resolve_model("chat")
+        # SDK 的 HTTP timeout=180s 偶发在 socket 卡死时不生效，外层强制 200s 硬超时；
+        # 超时后 shutdown(wait=False) 让底层线程自行结束，caller 立即返回释放信号量。
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            future = ex.submit(
+                client.chat.completions.create,
+                model=target_model,
+                messages=messages,
+                **kwargs,
+            )
+            try:
+                response = future.result(timeout=_LLM_HARD_TIMEOUT)
+            except concurrent.futures.TimeoutError:
+                logger.warning(
+                    "LLM hard timeout %.0fs (model=%s) — abandoning request",
+                    _LLM_HARD_TIMEOUT, target_model,
+                )
+                raise TimeoutError(f"LLM hard timeout after {_LLM_HARD_TIMEOUT}s")
+            return response.choices[0].message.content
+        finally:
+            ex.shutdown(wait=False)
     finally:
         with _STATS_LOCK:
             _ACTIVE -= 1

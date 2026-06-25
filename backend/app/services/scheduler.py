@@ -12,11 +12,15 @@ from apscheduler.triggers.cron import CronTrigger
 logger = logging.getLogger(__name__)
 
 scheduler = BackgroundScheduler(
-    executors={"default": ThreadPoolExecutor(max_workers=4)},
+    # max_workers=8: 15:00-15:45 时段 LLM 重任务与数据采集任务密集叠加，
+    #   4 个 worker 高峰期会饱和，导致接口假死。8 给 LLM 长调用留余量。
+    executors={"default": ThreadPoolExecutor(max_workers=8)},
     job_defaults={
         "coalesce": True,
         "max_instances": 1,
-        "misfire_grace_time": 3600,
+        # misfire_grace_time=300: 原 3600 让积压任务在 1 小时内全部补跑，
+        #   高峰期一次性涌入会让调度器雪崩。5 分钟窗口足够覆盖短暂卡顿。
+        "misfire_grace_time": 300,
     },
 )
 

@@ -36,22 +36,42 @@ A股智能分析系统，基于 FastAPI + React + LiteLLM。
 |------|------|------|
 | `news_sync` | 每 5 分钟 | 从 14 个新闻源抓取 |
 | `stock_recommendation_morning` | 工作日 9:26 | 早盘AI个股推荐 |
+| `watchlist_morning_analysis` | 工作日 9:30 | 自选股早盘AI分析 |
 | `stock_recommendation_midday` | 工作日 11:25 | 午盘AI个股推荐 |
-| `stock_recommendation_afternoon` | 工作日 14:45 | 尾盘AI个股推荐（主力净流入口径，非涨停） |
-| `limit_up_analysis_snapshot_midday` | 工作日 12:00 | 午间涨停/炸板数据采集 |
+| `market_snapshot_midday` | 工作日 12:00 | 午间行情快照 |
+| `stock_daily_snapshot_midday` | 工作日 12:01 | 午间个股日线快照 |
+| `sector_snapshot_midday` | 工作日 12:02 | 午间板块快照 |
+| `limit_up_analysis_snapshot_midday` | 工作日 12:03 | 午间涨停/炸板数据采集 |
 | `limit_up_ai_analysis_midday` | 工作日 12:05 | 午间涨停AI分析 |
-| `daily_market_analysis` | 工作日 15:15 | 指数分析 + 次日预测 |
-| `sector_snapshot` | 工作日 15:20 | 板块快照 + 资金流 |
-| `sector_ai_analysis` | 工作日 15:22 | 板块AI分析 |
-| `ai_daily_report` | 工作日 15:25 | AI 综合收盘报告 |
-| `limit_up_snapshot` | 工作日 15:30 | 涨停股快照 |
-| `stock_recommendation_review` | 工作日 15:35 | 收盘复盘推荐 |
+| `stock_recommendation_afternoon` | 工作日 14:45 | 尾盘AI个股推荐（主力净流入口径，非涨停） |
 | `limit_up_analysis_snapshot_close` | 工作日 15:00 | 收盘涨停/炸板数据采集 |
 | `limit_up_ai_analysis_close` | 工作日 15:05 | 收盘涨停AI分析 |
+| `market_snapshot_close` | 工作日 15:10 | 收盘行情快照 |
+| `stock_daily_snapshot_close` | 工作日 15:12 | 收盘个股日线快照 |
+| `daily_market_analysis` | 工作日 15:15 | 指数分析 + 次日预测 |
+| `sector_snapshot_close` | 工作日 15:20 | 收盘板块快照 |
+| `ai_daily_report` | 工作日 15:25 | AI 综合收盘报告 |
+| `limit_up_snapshot` | 工作日 15:30 | 涨停股快照 |
+| `sector_prediction_review` | 工作日 15:30 | 板块预测复盘 |
+| `watchlist_daily_snapshot` | 工作日 15:30 | 自选股收盘快照 |
+| `stock_recommendation_review` | 工作日 15:35 | 收盘复盘推荐 |
+| `watchlist_close_analysis` | 工作日 15:42 | 自选股收盘AI分析 |
+| `tomorrow_strategy_generation` | 工作日 15:50 | 明日策略生成 |
+| `sector_ai_analysis` | 工作日 15:58 | 板块AI分析 |
+| `sector_ai_analysis_sunday` | 周日 21:00 | 板块AI分析 |
+| `research_sync` | 工作日 16:00 | 券商研报抓取 |
+| `research_pick_generation` | 工作日 16:10 | 研报AI选股 |
+| `stock_fundamental_snapshot` | 工作日 16:30 | 个股基本面快照 |
+| `stock_capital_detail_snapshot` | 工作日 16:40 | 个股资金流明细快照 |
+| `sync_log_cleanup` | 每日 17:00 | 清理 90 天前的 sync_log |
+
+> 收盘时段（15:00-15:58）已错峰：LLM 重任务（15:05/15:15/15:25/15:35/15:42/15:50/15:58）彼此间隔 ≥ 7 分钟，避免 4 worker 池饱和导致假死。scheduler 配置：`max_workers=8`，`misfire_grace_time=300`。
 
 ## 数据库
 
 SQLite，位于 `backend/data/stock.db`。Schema 定义在 `backend/app/database.py`，`init_db()` 自动建表和迁移。
+
+启用 WAL 模式 + `busy_timeout=30000ms` + `connect timeout=30s`，避免多线程并发写入时锁竞争导致假死。读写不互斥（写只锁 `-wal` 文件）。
 
 ## 新闻源
 

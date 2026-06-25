@@ -565,8 +565,16 @@ CREATE TABLE IF NOT EXISTS benchmark_daily (
 
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DATABASE_PATH))
+    # timeout=30s: 默认 5s 太短，scheduler worker 与 FastAPI 写入并发时会触发
+    #   OperationalError: database is locked；30s 给锁排队留足窗口。
+    conn = sqlite3.connect(str(DATABASE_PATH), timeout=30.0)
     conn.row_factory = sqlite3.Row
+    # busy_timeout: 收到 SQLITE_BUSY 时由 SQLite 内部轮询重试 30s，
+    #   避免短锁冲突直接抛错；与 connect timeout 双保险。
+    conn.execute("PRAGMA busy_timeout=30000")
+    # synchronous=NORMAL: WAL 模式下只在 checkpoint 时 fsync，写性能更好；
+    # 会话级，每个连接必须单独设（默认 FULL=2 会拖慢所有写入）。
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 
@@ -647,6 +655,13 @@ _MIGRATIONS = [
 
 def init_db():
     conn = get_connection()
+    # 启用 WAL：读写不再互斥（写只锁 -wal 文件，读走主库 + wal），
+    # 持久化到数据库文件头，重启后仍生效；synchronous=NORMAL 配 WAL 足够安全且更快。
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.OperationalError:
+        pass
     # 清理可能因历史迁移残留的重复数据，防止唯一索引创建失败
     try:
         conn.execute(
@@ -664,3 +679,26 @@ def init_db():
             pass
     conn.commit()
     conn.close()
+    # 启动时清理一次过期 sync_log（覆盖重启场景）；运行期由定时任务清理。
+    cleanup_old_logs()
+
+
+_SYNC_LOG_RETAIN_DAYS = 90
+
+
+def cleanup_old_logs(retain_days: int = _SYNC_LOG_RETAIN_DAYS) -> int:
+    """删除超过 retain_days 天的 sync_log，返回删除条数。
+
+    sync_log 每天写入 ~500 行（5 分钟 news_sync + 30+ cron 任务），
+    90 天约 4.5 万行；放任增长会让 sync_log 查询和写入变慢。
+    """
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "DELETE FROM sync_log WHERE created_at < datetime('now', ?)",
+            (f"-{retain_days} days",),
+        )
+        conn.commit()
+        return cur.rowcount or 0
+    finally:
+        conn.close()

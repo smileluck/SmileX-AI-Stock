@@ -23,7 +23,7 @@ from app.api.tomorrow_strategy import router as tomorrow_strategy_router
 from app.api.research import router as research_router
 from app.api.backtest import router as backtest_router
 from app.config import CORS_ALLOWED_ORIGINS
-from app.database import init_db
+from app.database import init_db, cleanup_old_logs
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.news_sync import sync_all
 from app.services.market import snapshot_market_data
@@ -79,7 +79,7 @@ JOBS: list[dict] = [
     {"id": "sector_snapshot_close", "cron": "20 15 * * 1-5", "fn": lambda: snapshot_sector_data(trigger="scheduled"), "desc": "收盘板块快照"},
     {"id": "sector_prediction_review", "cron": "30 15 * * 1-5", "fn": lambda: compare_sector_prediction(_today()), "desc": "板块预测复盘"},
     {"id": "ai_daily_report", "cron": "25 15 * * 1-5", "fn": lambda: generate_ai_daily_report(_today()), "desc": "AI综合收盘报告"},
-    {"id": "sector_ai_analysis", "cron": "45 15 * * 1-5", "fn": lambda: generate_sector_analysis(_today()), "desc": "板块AI分析"},
+    {"id": "sector_ai_analysis", "cron": "58 15 * * 1-5", "fn": lambda: generate_sector_analysis(_today()), "desc": "板块AI分析"},
     {"id": "sector_ai_analysis_sunday", "cron": "0 21 * * 0", "fn": lambda: generate_sector_analysis(_today()), "desc": "周日板块AI分析"},
     {"id": "limit_up_snapshot", "cron": "30 15 * * 1-5", "fn": lambda: snapshot_limit_up_data(trigger="scheduled"), "desc": "涨停股快照"},
     {"id": "stock_recommendation_morning", "cron": "26 9 * * 1-5", "fn": lambda: generate_recommendations(phase="morning"), "desc": "早盘AI个股推荐"},
@@ -92,12 +92,13 @@ JOBS: list[dict] = [
     {"id": "limit_up_ai_analysis_close", "cron": "5 15 * * 1-5", "fn": lambda: generate_limit_up_analysis(_today(), phase="close"), "desc": "收盘涨停AI分析"},
     {"id": "stock_fundamental_snapshot", "cron": "30 16 * * 1-5", "fn": lambda: snapshot_fundamental_batch(trigger="scheduled"), "desc": "个股基本面快照"},
     {"id": "stock_capital_detail_snapshot", "cron": "40 16 * * 1-5", "fn": lambda: snapshot_capital_detail(trigger="scheduled"), "desc": "个股资金流明细快照"},
-    {"id": "tomorrow_strategy_generation", "cron": "40 15 * * 1-5", "fn": lambda: generate_tomorrow_strategy(_today()), "desc": "明日策略生成"},
+    {"id": "tomorrow_strategy_generation", "cron": "50 15 * * 1-5", "fn": lambda: generate_tomorrow_strategy(_today()), "desc": "明日策略生成"},
     {"id": "watchlist_daily_snapshot", "cron": "30 15 * * 1-5", "fn": lambda: snapshot_watchlist_daily(trigger="scheduled"), "desc": "自选股收盘快照"},
     {"id": "watchlist_morning_analysis", "cron": "30 9 * * 1-5", "fn": lambda: generate_watchlist_analysis(_today(), phase="morning"), "desc": "自选股早盘AI分析"},
-    {"id": "watchlist_close_analysis", "cron": "35 15 * * 1-5", "fn": lambda: generate_watchlist_analysis(_today(), phase="close"), "desc": "自选股收盘AI分析"},
+    {"id": "watchlist_close_analysis", "cron": "42 15 * * 1-5", "fn": lambda: generate_watchlist_analysis(_today(), phase="close"), "desc": "自选股收盘AI分析"},
     {"id": "research_sync", "cron": "0 16 * * 1-5", "fn": lambda: sync_research_reports(trigger="scheduled", days=3), "desc": "券商研报抓取"},
     {"id": "research_pick_generation", "cron": "10 16 * * 1-5", "fn": lambda: generate_research_picks(phase="close"), "desc": "研报AI选股"},
+    {"id": "sync_log_cleanup", "cron": "0 17 * * *", "fn": cleanup_old_logs, "desc": "清理 90 天前的 sync_log"},
 ]
 
 
